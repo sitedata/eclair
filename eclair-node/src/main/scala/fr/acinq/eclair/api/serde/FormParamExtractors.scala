@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-package fr.acinq.eclair.api
+package fr.acinq.eclair.api.serde
 
 import java.util.UUID
 import akka.http.scaladsl.unmarshalling.Unmarshaller
 import akka.util.Timeout
 import fr.acinq.bitcoin.{ByteVector32, PimpSatoshi, PublicKey, Satoshi}
-import fr.acinq.eclair.api.JsonSupport._
+import fr.acinq.eclair.api.serde.JsonSupport._
 import fr.acinq.eclair.blockchain.fee.FeeratePerByte
 import fr.acinq.eclair.io.NodeURI
 import fr.acinq.eclair.payment.PaymentRequest

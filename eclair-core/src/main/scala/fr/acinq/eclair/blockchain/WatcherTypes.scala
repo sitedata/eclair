@@ -20,7 +20,7 @@ import akka.actor.ActorRef
 import fr.acinq.bitcoin.{ByteVector32, PublicKey, Satoshi, Script, ScriptWitness, Transaction}
 import fr.acinq.eclair.channel.BitcoinEvent
 import fr.acinq.eclair.transactions.Transactions.TransactionSigningKit
-import fr.acinq.eclair.wire.ChannelAnnouncement
+import fr.acinq.eclair.wire.protocol.ChannelAnnouncement
 import scodec.bits.ByteVector
 import fr.acinq.eclair.KotlinUtils._
 import fr.acinq.eclair.blockchain.fee.FeeratePerKw

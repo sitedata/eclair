@@ -85,6 +85,8 @@ object KotlinUtils {
 
   implicit def btcamount2satoshi(input: BtcAmount): Satoshi = input.toSatoshi
 
+  //implicit def scodecbytevector2bytearray(input: scodec.bits.ByteVector): Array[Byte] = input.toArray
+
   implicit def scodecbytevector2acinqbytevector(input: scodec.bits.ByteVector): fr.acinq.bitcoin.ByteVector = new ByteVector(input.toArray)
 
   implicit def acinqbytevector2scodecbytevector(input: fr.acinq.bitcoin.ByteVector): scodec.bits.ByteVector = scodec.bits.ByteVector(input.toByteArray)

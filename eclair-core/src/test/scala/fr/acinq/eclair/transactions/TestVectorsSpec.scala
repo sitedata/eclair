@@ -22,7 +22,7 @@ import fr.acinq.eclair.channel.ChannelVersion
 import fr.acinq.eclair.channel.Helpers.Funding
 import fr.acinq.eclair.crypto.Generators
 import fr.acinq.eclair.transactions.Transactions._
-import fr.acinq.eclair.wire.UpdateAddHtlc
+import fr.acinq.eclair.wire.protocol.UpdateAddHtlc
 import fr.acinq.eclair.{CltvExpiry, CltvExpiryDelta, MilliSatoshi, MilliSatoshiLong, TestConstants}
 import fr.acinq.eclair.KotlinUtils._
 import grizzled.slf4j.Logging
@@ -208,7 +208,7 @@ trait TestVectorsSpec extends AnyFunSuite with Logging {
       Transactions.addSigs(tx, Local.funding_pubkey, Remote.funding_pubkey, local_sig, remote_sig)
     }
 
-    val baseFee = Transactions.commitTxFee(Local.dustLimit, spec, commitmentFormat)
+    val baseFee = Transactions.commitTxFeeMsat(Local.dustLimit, spec, commitmentFormat)
     logger.info(s"# base commitment transaction fee = ${baseFee.toLong}")
     val actualFee = fundingAmount minus commitTx.tx.txOut.map(_.amount).sum
     logger.info(s"# actual commitment transaction fee = ${actualFee.toLong}")
@@ -226,7 +226,7 @@ trait TestVectorsSpec extends AnyFunSuite with Logging {
     Transaction.correctlySpends(commitTx.tx, Seq(fundingTx), ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
     logger.info(s"output commit_tx: ${commitTx.tx}")
 
-    val (unsignedHtlcTimeoutTxs, unsignedHtlcSuccessTxs) = Transactions.makeHtlcTxs(
+    val unsignedHtlcTxs = Transactions.makeHtlcTxs(
       commitTx.tx,
       Local.dustLimit,
       Local.revocation_pubkey,
@@ -235,7 +235,7 @@ trait TestVectorsSpec extends AnyFunSuite with Logging {
       outputs,
       commitmentFormat)
 
-    val htlcTxs: Seq[TransactionWithInputInfo] = (unsignedHtlcTimeoutTxs ++ unsignedHtlcSuccessTxs).sortBy(_.input.outPoint.index)
+    val htlcTxs: Seq[TransactionWithInputInfo] = unsignedHtlcTxs.sortBy(_.input.outPoint.index)
     logger.info(s"num_htlcs: ${htlcTxs.length}")
 
     htlcTxs.collect {

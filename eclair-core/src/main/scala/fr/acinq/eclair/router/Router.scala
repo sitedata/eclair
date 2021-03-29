@@ -37,9 +37,9 @@ import fr.acinq.eclair.router.Graph.GraphStructure.DirectedGraph
 import fr.acinq.eclair.router.Graph.WeightRatios
 import fr.acinq.eclair.router.Monitoring.{Metrics, Tags}
 import fr.acinq.eclair.transactions.Scripts
-import fr.acinq.eclair.wire._
-import KotlinUtils._
+import fr.acinq.eclair.wire.protocol._
 import kamon.context.Context
+import KotlinUtils._
 import scodec.bits.ByteVector
 
 import scala.collection.immutable.SortedMap

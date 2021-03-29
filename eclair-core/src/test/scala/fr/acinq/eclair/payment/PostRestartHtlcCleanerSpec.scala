@@ -31,8 +31,9 @@ import fr.acinq.eclair.payment.PaymentPacketSpec._
 import fr.acinq.eclair.payment.relay.{PostRestartHtlcCleaner, Relayer}
 import fr.acinq.eclair.router.Router.ChannelHop
 import fr.acinq.eclair.transactions.{DirectedHtlc, IncomingHtlc, OutgoingHtlc}
-import fr.acinq.eclair.wire.Onion.FinalLegacyPayload
-import fr.acinq.eclair.wire._
+import fr.acinq.eclair.wire.protocol.Onion.FinalLegacyPayload
+import fr.acinq.eclair.wire.protocol._
+import fr.acinq.eclair.wire.internal.channel.ChannelCodecsSpec
 import fr.acinq.eclair.{CltvExpiry, CltvExpiryDelta, CustomCommitmentsPlugin, MilliSatoshi, MilliSatoshiLong, NodeParams, TestConstants, TestKitBaseClass, randomBytes32}
 import fr.acinq.eclair.KotlinUtils._
 import org.scalatest.Outcome
@@ -378,10 +379,11 @@ class PostRestartHtlcCleanerSpec extends TestKitBaseClass with FixtureAnyFunSuit
       val closingState = localClose(alice, alice2blockchain)
       alice ! WatchEventConfirmed(BITCOIN_TX_CONFIRMED(closingState.commitTx), 42, 0, closingState.commitTx)
       // All committed htlcs timed out except the last two; one will be fulfilled later and the other will timeout later.
-      assert(closingState.htlcTimeoutTxs.length === 4)
-      val htlcTxes = closingState.htlcTimeoutTxs.sortBy(_.txOut.map(_.amount).sum)
-      htlcTxes.reverse.drop(2).zipWithIndex.foreach {
-        case (tx, i) => alice ! WatchEventConfirmed(BITCOIN_TX_CONFIRMED(tx), 201, i, tx)
+      assert(closingState.htlcTxs.size === 4)
+      assert(getHtlcTimeoutTxs(closingState).length === 4)
+      val htlcTxs = getHtlcTimeoutTxs(closingState).sortBy(_.tx.txOut.map(_.amount).sum)
+      htlcTxs.reverse.drop(2).zipWithIndex.foreach {
+        case (htlcTx, i) => alice ! WatchEventConfirmed(BITCOIN_TX_CONFIRMED(htlcTx.tx), 201, i, htlcTx.tx)
       }
       (alice.stateData.asInstanceOf[DATA_CLOSING], htlc_2_2)
     }

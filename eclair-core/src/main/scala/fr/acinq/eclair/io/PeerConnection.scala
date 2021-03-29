@@ -27,11 +27,12 @@ import fr.acinq.eclair.io.Monitoring.{Metrics, Tags}
 import fr.acinq.eclair.io.Peer.CHANNELID_ZERO
 import fr.acinq.eclair.remote.EclairInternalsSerializer.RemoteTypes
 import fr.acinq.eclair.router.Router._
-import fr.acinq.eclair.wire._
-import fr.acinq.eclair.{wire, _}
+import fr.acinq.eclair.wire.protocol
+import fr.acinq.eclair.wire.protocol._
+import fr.acinq.eclair.{FSMDiagnosticActorLogging, Features, Logs}
 import scodec.Attempt
 import scodec.bits.ByteVector
-import KotlinUtils._
+import fr.acinq.eclair.KotlinUtils._
 
 import java.net.InetSocketAddress
 import scala.concurrent.duration._
@@ -102,7 +103,7 @@ class PeerConnection(keyPair: KeyPair, conf: PeerConnection.Conf, switchboard: A
       d.transport ! TransportHandler.Listener(self)
       Metrics.PeerConnectionsConnecting.withTag(Tags.ConnectionState, Tags.ConnectionStates.Initializing).increment()
       log.info(s"using features=$localFeatures")
-      val localInit = wire.Init(localFeatures, TlvStream(InitTlv.Networks(chainHash :: Nil)))
+      val localInit = protocol.Init(localFeatures, TlvStream(InitTlv.Networks(chainHash :: Nil)))
       d.transport ! localInit
       setTimer(INIT_TIMER, InitTimeout, conf.initTimeout)
       goto(INITIALIZING) using InitializingData(chainHash, d.pendingAuth, d.remoteNodeId, d.transport, peer, localInit, doSync)
@@ -110,7 +111,7 @@ class PeerConnection(keyPair: KeyPair, conf: PeerConnection.Conf, switchboard: A
 
   when(INITIALIZING) {
     heartbeat { // receiving the init message from remote will start the first ping timer
-      case Event(remoteInit: wire.Init, d: InitializingData) =>
+      case Event(remoteInit: protocol.Init, d: InitializingData) =>
         cancelTimer(INIT_TIMER)
         d.transport ! TransportHandler.ReadAck(remoteInit)
 
@@ -170,7 +171,7 @@ class PeerConnection(keyPair: KeyPair, conf: PeerConnection.Conf, switchboard: A
           // no need to use secure random here
           val pingSize = Random.nextInt(1000)
           val pongSize = Random.nextInt(1000)
-          val ping = wire.Ping(pongSize, ByteVector.fill(pingSize)(0))
+          val ping = Ping(pongSize, ByteVector.fill(pingSize)(0))
           setTimer(PingTimeout.toString, PingTimeout(ping), conf.pingTimeout, repeat = false)
           d.transport ! ping
           stay using d.copy(expectedPong_opt = Some(ExpectedPong(ping)))
@@ -188,17 +189,17 @@ class PeerConnection(keyPair: KeyPair, conf: PeerConnection.Conf, switchboard: A
         }
         stay
 
-      case Event(ping@wire.Ping(pongLength, _), d: ConnectedData) =>
+      case Event(ping@Ping(pongLength, _), d: ConnectedData) =>
         d.transport ! TransportHandler.ReadAck(ping)
         if (pongLength <= 65532) {
           // see BOLT 1: we reply only if requested pong length is acceptable
-          d.transport ! wire.Pong(ByteVector.fill(pongLength)(0.toByte))
+          d.transport ! Pong(ByteVector.fill(pongLength)(0.toByte))
         } else {
           log.warning(s"ignoring invalid ping with pongLength=${ping.pongLength}")
         }
         stay
 
-      case Event(pong@wire.Pong(data), d: ConnectedData) =>
+      case Event(pong@Pong(data), d: ConnectedData) =>
         d.transport ! TransportHandler.ReadAck(pong)
         d.expectedPong_opt match {
           case Some(ExpectedPong(ping, timestamp)) if ping.pongLength == data.length =>
@@ -271,7 +272,7 @@ class PeerConnection(keyPair: KeyPair, conf: PeerConnection.Conf, switchboard: A
           stay using d.copy(gossipTimestampFilter = Some(msg))
         }
 
-      case Event(msg: wire.RoutingMessage, d: ConnectedData) =>
+      case Event(msg: RoutingMessage, d: ConnectedData) =>
         msg match {
           case _: AnnouncementSignatures =>
             // this is actually for the channel
@@ -490,8 +491,8 @@ object PeerConnection {
   case object Nothing extends Data
   case class AuthenticatingData(pendingAuth: PendingAuth, transport: ActorRef) extends Data with HasTransport
   case class BeforeInitData(remoteNodeId: PublicKey, pendingAuth: PendingAuth, transport: ActorRef) extends Data with HasTransport
-  case class InitializingData(chainHash: ByteVector32, pendingAuth: PendingAuth, remoteNodeId: PublicKey, transport: ActorRef, peer: ActorRef, localInit: wire.Init, doSync: Boolean) extends Data with HasTransport
-  case class ConnectedData(chainHash: ByteVector32, remoteNodeId: PublicKey, transport: ActorRef, peer: ActorRef, localInit: wire.Init, remoteInit: wire.Init, rebroadcastDelay: FiniteDuration, gossipTimestampFilter: Option[GossipTimestampFilter] = None, behavior: Behavior = Behavior(), expectedPong_opt: Option[ExpectedPong] = None) extends Data with HasTransport
+  case class InitializingData(chainHash: ByteVector32, pendingAuth: PendingAuth, remoteNodeId: PublicKey, transport: ActorRef, peer: ActorRef, localInit: protocol.Init, doSync: Boolean) extends Data with HasTransport
+  case class ConnectedData(chainHash: ByteVector32, remoteNodeId: PublicKey, transport: ActorRef, peer: ActorRef, localInit: protocol.Init, remoteInit: protocol.Init, rebroadcastDelay: FiniteDuration, gossipTimestampFilter: Option[GossipTimestampFilter] = None, behavior: Behavior = Behavior(), expectedPong_opt: Option[ExpectedPong] = None) extends Data with HasTransport
 
   case class ExpectedPong(ping: Ping, timestamp: Long = System.currentTimeMillis)
   case class PingTimeout(ping: Ping)
@@ -508,7 +509,7 @@ object PeerConnection {
   }
   case class Authenticated(peerConnection: ActorRef, remoteNodeId: PublicKey) extends RemoteTypes
   case class InitializeConnection(peer: ActorRef, chainHash: ByteVector32, features: Features, doSync: Boolean) extends RemoteTypes
-  case class ConnectionReady(peerConnection: ActorRef, remoteNodeId: PublicKey, address: InetSocketAddress, outgoing: Boolean, localInit: wire.Init, remoteInit: wire.Init) extends RemoteTypes
+  case class ConnectionReady(peerConnection: ActorRef, remoteNodeId: PublicKey, address: InetSocketAddress, outgoing: Boolean, localInit: protocol.Init, remoteInit: protocol.Init) extends RemoteTypes
 
   sealed trait ConnectionResult extends RemoteTypes
   object ConnectionResult {

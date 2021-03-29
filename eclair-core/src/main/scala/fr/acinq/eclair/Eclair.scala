@@ -37,7 +37,7 @@ import fr.acinq.eclair.payment.relay.Relayer.{GetOutgoingChannels, OutgoingChann
 import fr.acinq.eclair.payment.send.PaymentInitiator.{SendPaymentRequest, SendPaymentToRouteRequest, SendPaymentToRouteResponse}
 import fr.acinq.eclair.router.Router._
 import fr.acinq.eclair.router.{NetworkStats, RouteCalculation, Router}
-import fr.acinq.eclair.wire._
+import fr.acinq.eclair.wire.protocol._
 import scodec.bits.ByteVector
 import KotlinUtils._
 
@@ -72,7 +72,7 @@ object TimestampQueryFilters {
 
 object SignedMessage {
   def signedBytes(message: ByteVector): ByteVector32 =
-    Crypto.hash256(ByteVector("Lightning Signed Message:".getBytes(StandardCharsets.UTF_8)) ++ message)
+    Crypto.hash256((ByteVector("Lightning Signed Message:".getBytes(StandardCharsets.UTF_8)) ++ message).toArray)
 }
 
 object ApiTypes {

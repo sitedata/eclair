@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-package fr.acinq.eclair.wire
+package fr.acinq.eclair.wire.protocol
 
 import fr.acinq.bitcoin.{Block, ByteVector32, ByteVector64, PimpSatoshi, PrivateKey, PublicKey, SatoshiLong}
 import fr.acinq.eclair._
 import fr.acinq.eclair.blockchain.fee.FeeratePerKw
 import fr.acinq.eclair.router.Announcements
-import fr.acinq.eclair.wire.LightningMessageCodecs._
-import fr.acinq.eclair.wire.ReplyChannelRangeTlv._
+import fr.acinq.eclair.wire.protocol.LightningMessageCodecs._
+import fr.acinq.eclair.wire.protocol.ReplyChannelRangeTlv._
 import org.scalatest.funsuite.AnyFunSuite
 import scodec.bits.{ByteVector, HexStringSyntax}
 

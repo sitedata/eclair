@@ -24,7 +24,7 @@ import fr.acinq.eclair.blockchain._
 import fr.acinq.eclair.blockchain.fee.{FeeratePerKw, FeeratesPerKw}
 import fr.acinq.eclair.channel._
 import fr.acinq.eclair.payment.receive.{ForwardHandler, PaymentHandler}
-import fr.acinq.eclair.wire.Init
+import fr.acinq.eclair.wire.protocol.Init
 import fr.acinq.eclair.{MilliSatoshiLong, TestKitBaseClass, TestUtils}
 import fr.acinq.eclair.KotlinUtils._
 import org.scalatest.funsuite.FixtureAnyFunSuiteLike

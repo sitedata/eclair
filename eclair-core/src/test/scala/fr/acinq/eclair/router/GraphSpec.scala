@@ -18,6 +18,7 @@ package fr.acinq.eclair.router
 
 import fr.acinq.bitcoin.Crypto.PublicKey
 import fr.acinq.bitcoin.{ByteVector32, SatoshiLong}
+import fr.acinq.eclair.db.sqlite.SqliteNetworkDb
 import fr.acinq.eclair.router.Graph.GraphStructure.{DirectedGraph, GraphEdge}
 import fr.acinq.eclair.router.Graph.RoutingHeuristics
 import fr.acinq.eclair.router.RouteCalculationSpec._
@@ -26,6 +27,8 @@ import fr.acinq.eclair.{MilliSatoshiLong, ShortChannelId}
 import org.scalatest.funsuite.AnyFunSuite
 import scodec.bits._
 
+import java.io.File
+import java.sql.DriverManager
 import scala.collection.immutable.SortedMap
 
 class GraphSpec extends AnyFunSuite {
@@ -54,6 +57,16 @@ class GraphSpec extends AnyFunSuite {
       makeEdge(5L, c, e, 0 msat, 0),
       makeEdge(6L, b, e, 0 msat, 0)
     ))
+
+  test("mainnet graph analysis") {
+    val networkDb = new SqliteNetworkDb(DriverManager.getConnection(s"jdbc:sqlite:${new File("/path/to/folder", "network_09062020.sqlite")}"))
+    val channels = networkDb.listChannels()
+    assert(channels.keys.size === 32243)
+    val nodes = networkDb.listNodes()
+    assert(nodes.size === 5571)
+    val graph = DirectedGraph.makeGraph(channels)
+    assert(graph.vertexSet().nonEmpty)
+  }
 
   test("instantiate a graph, with vertices and then add edges") {
     val graph = DirectedGraph(a)

@@ -79,7 +79,6 @@ case class NodeParams(nodeKeyManager: NodeKeyManager,
                       maxReconnectInterval: FiniteDuration,
                       chainHash: ByteVector32,
                       channelFlags: Byte,
-                      watcherType: WatcherType,
                       watchSpentWindow: FiniteDuration,
                       paymentRequestExpiry: FiniteDuration,
                       multiPartPaymentExpiry: FiniteDuration,
@@ -110,11 +109,10 @@ case class NodeParams(nodeKeyManager: NodeKeyManager,
 
 object NodeParams extends Logging {
 
+  // @formatter:off
   sealed trait WatcherType
-
   object BITCOIND extends WatcherType
-
-  object ELECTRUM extends WatcherType
+  // @formatter:on
 
   /**
    * Order of precedence for the configuration parameters:
@@ -123,7 +121,7 @@ object NodeParams extends Logging {
    * 3) Optionally provided config
    * 4) Default values in reference.conf
    */
-  def loadConfiguration(datadir: File) =
+  def loadConfiguration(datadir: File): Config =
     ConfigFactory.parseProperties(System.getProperties)
       .withFallback(ConfigFactory.parseFile(new File(datadir, "eclair.conf")))
       .withFallback(ConfigFactory.load())
@@ -213,11 +211,6 @@ object NodeParams extends Logging {
 
     val color = ByteVector.fromValidHex(config.getString("node-color"))
     require(color.size == 3, "color should be a 3-bytes hex buffer")
-
-    val watcherType = config.getString("watcher-type") match {
-      case "electrum" => ELECTRUM
-      case _ => BITCOIND
-    }
 
     val watchSpentWindow = FiniteDuration(config.getDuration("watch-spent-window").getSeconds, TimeUnit.SECONDS)
     require(watchSpentWindow > 0.seconds, "watch-spent-window must be strictly greater than 0")
@@ -364,7 +357,6 @@ object NodeParams extends Logging {
       maxReconnectInterval = FiniteDuration(config.getDuration("max-reconnect-interval").getSeconds, TimeUnit.SECONDS),
       chainHash = chainHash,
       channelFlags = config.getInt("channel-flags").toByte,
-      watcherType = watcherType,
       watchSpentWindow = watchSpentWindow,
       paymentRequestExpiry = FiniteDuration(config.getDuration("payment-request-expiry").getSeconds, TimeUnit.SECONDS),
       multiPartPaymentExpiry = FiniteDuration(config.getDuration("multi-part-payment-expiry").getSeconds, TimeUnit.SECONDS),

@@ -54,13 +54,13 @@ object Databases extends Logging {
     def obtainExclusiveLock(): Unit
   }
 
-  case class SqliteDatabases private (network: SqliteNetworkDb,
-                             audit: SqliteAuditDb,
-                             channels: SqliteChannelsDb,
-                             peers: SqlitePeersDb,
-                             payments: SqlitePaymentsDb,
-                             pendingRelay: SqlitePendingRelayDb,
-                             private val backupConnection: Connection) extends Databases with FileBackup {
+  case class SqliteDatabases private(network: SqliteNetworkDb,
+                                     audit: SqliteAuditDb,
+                                     channels: SqliteChannelsDb,
+                                     peers: SqlitePeersDb,
+                                     payments: SqlitePaymentsDb,
+                                     pendingRelay: SqlitePendingRelayDb,
+                                     private val backupConnection: Connection) extends Databases with FileBackup {
     override def backup(backupFile: File): Unit = SqliteUtils.using(backupConnection.createStatement()) {
       statement => {
         statement.executeUpdate(s"backup to ${backupFile.getAbsolutePath}")
@@ -69,7 +69,7 @@ object Databases extends Logging {
   }
 
   object SqliteDatabases {
-    def apply(auditJdbc: Connection, networkJdbc: Connection, eclairJdbc: Connection): Databases = SqliteDatabases(
+    def apply(auditJdbc: Connection, networkJdbc: Connection, eclairJdbc: Connection): SqliteDatabases = SqliteDatabases(
       network = new SqliteNetworkDb(networkJdbc),
       audit = new SqliteAuditDb(auditJdbc),
       channels = new SqliteChannelsDb(eclairJdbc),
@@ -80,14 +80,14 @@ object Databases extends Logging {
     )
   }
 
-  case class PostgresDatabases private (network: PgNetworkDb,
-                               audit: PgAuditDb,
-                               channels: PgChannelsDb,
-                               peers: PgPeersDb,
-                               payments: PgPaymentsDb,
-                               pendingRelay: PgPendingRelayDb,
-                               dataSource: HikariDataSource,
-                               lock: PgLock) extends Databases with ExclusiveLock {
+  case class PostgresDatabases private(network: PgNetworkDb,
+                                       audit: PgAuditDb,
+                                       channels: PgChannelsDb,
+                                       peers: PgPeersDb,
+                                       payments: PgPaymentsDb,
+                                       pendingRelay: PgPendingRelayDb,
+                                       dataSource: HikariDataSource,
+                                       lock: PgLock) extends Databases with ExclusiveLock {
     override def obtainExclusiveLock(): Unit = lock.obtainExclusiveLock(dataSource)
   }
 
@@ -155,7 +155,7 @@ object Databases extends Logging {
   /**
    * Given a parent folder it creates or loads all the databases from a JDBC connection
    */
-  def sqlite(dbdir: File): Databases = {
+  def sqlite(dbdir: File): SqliteDatabases = {
     dbdir.mkdir()
     var sqliteEclair: Connection = null
     var sqliteNetwork: Connection = null

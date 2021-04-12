@@ -2013,7 +2013,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
           case Some(fundingTx) =>
             // if we are funder, we never give up
             log.info(s"republishing the funding tx...")
-            txPublisher ! PublishRawTx(fundingTx, "funding-tx")
+            txPublisher ! PublishRawTx.fundingTx(fundingTx)
             // we also check if the funding tx has been double-spent
             checkDoubleSpent(fundingTx)
             context.system.scheduler.scheduleOnce(1 day, blockchain, GetTxWithMeta(txid))
@@ -2232,11 +2232,11 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
 
     val publishQueue = commitments.commitmentFormat match {
       case Transactions.DefaultCommitmentFormat =>
-        List(PublishRawTx(commitTx, "commit-tx")) ++ (claimMainDelayedOutputTx ++ htlcTxs.values.flatten ++ claimHtlcDelayedTxs).map(tx => PublishRawTx(tx))
+        List(PublishRawTx.commitTx(commitTx)) ++ (claimMainDelayedOutputTx ++ htlcTxs.values.flatten ++ claimHtlcDelayedTxs).map(tx => PublishRawTx(tx))
       case Transactions.AnchorOutputsCommitmentFormat =>
         val claimLocalAnchor = claimAnchorTxs.collect { case tx: Transactions.ClaimLocalAnchorOutputTx => SignAndPublishTx(tx, commitments) }
         val redeemableHtlcTxs = htlcTxs.values.collect { case Some(tx) => SignAndPublishTx(tx, commitments) }
-        List(PublishRawTx(commitTx, "commit-tx")) ++ claimLocalAnchor ++ claimMainDelayedOutputTx.map(tx => PublishRawTx(tx)) ++ redeemableHtlcTxs ++ claimHtlcDelayedTxs.map(tx => PublishRawTx(tx))
+        List(PublishRawTx.commitTx(commitTx)) ++ claimLocalAnchor ++ claimMainDelayedOutputTx.map(tx => PublishRawTx(tx)) ++ redeemableHtlcTxs ++ claimHtlcDelayedTxs.map(tx => PublishRawTx(tx))
     }
     publishIfNeeded(publishQueue, irrevocablySpent)
 

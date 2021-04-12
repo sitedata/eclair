@@ -146,7 +146,7 @@ class TxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoin
         bitcoinWallet.signTransaction(funded).pipeTo(probe.ref)
         probe.expectMsgType[SignTransactionResponse].tx
       }
-      txPublisher ! PublishRawTx(tx1, "funding-tx")
+      txPublisher ! PublishRawTx.fundingTx(tx1)
       createBlocks(4)
       assert(!getMempool.exists(_.txid === tx1.txid)) // tx should not be broadcast yet
       createBlocks(1)
@@ -154,7 +154,7 @@ class TxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoin
 
       // tx2 has a relative delay but no absolute delay
       val tx2 = createSpendP2WPKH(tx1, priv, priv.publicKey, 10000 sat, sequence = 2, lockTime = 0)
-      txPublisher ! PublishRawTx(tx2, "child-tx")
+      txPublisher ! PublishRawTx.forTesting(tx2, "child-tx")
       val watchParentTx2 = alice2blockchain.expectMsgType[WatchConfirmed]
       assert(watchParentTx2.txId === tx1.txid)
       assert(watchParentTx2.minDepth === 2)
@@ -164,7 +164,7 @@ class TxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoin
 
       // tx3 has both relative and absolute delays
       val tx3 = createSpendP2WPKH(tx2, priv, priv.publicKey, 10000 sat, sequence = 1, lockTime = blockCount.get + 5)
-      txPublisher ! PublishRawTx(tx3, "grand-child-tx")
+      txPublisher ! PublishRawTx.forTesting(tx3, "grand-child-tx")
       val watchParentTx3 = alice2blockchain.expectMsgType[WatchConfirmed]
       assert(watchParentTx3.txId === tx2.txid)
       assert(watchParentTx3.minDepth === 1)
@@ -191,8 +191,8 @@ class TxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoin
         bitcoinWallet.signTransaction(funded).pipeTo(probe.ref)
         probe.expectMsgType[SignTransactionResponse].tx
       })
-      txPublisher ! PublishRawTx(parentTx1, "parent-tx-1")
-      txPublisher ! PublishRawTx(parentTx2, "parent-tx-2")
+      txPublisher ! PublishRawTx.forTesting(parentTx1, "parent-tx-1")
+      txPublisher ! PublishRawTx.forTesting(parentTx2, "parent-tx-2")
       assert(getMempoolTxs(2).map(_.txid).toSet === Set(parentTx1.txid, parentTx2.txid))
 
       val tx = {
@@ -213,7 +213,7 @@ class TxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoin
       }
 
       Transaction.correctlySpends(tx, parentTx1 :: parentTx2 :: Nil, ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)
-      txPublisher ! PublishRawTx(tx, "child-tx")
+      txPublisher ! PublishRawTx.forTesting(tx, "child-tx")
       val watches = Seq(
         alice2blockchain.expectMsgType[WatchConfirmed],
         alice2blockchain.expectMsgType[WatchConfirmed],

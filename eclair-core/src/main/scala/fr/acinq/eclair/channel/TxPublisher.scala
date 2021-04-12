@@ -52,9 +52,13 @@ object TxPublisher {
     def desc: String
   }
   /**  Publish a fully signed transaction without modifying it. */
-  case class PublishRawTx(tx: Transaction, desc: String) extends PublishTx
+  case class PublishRawTx private (tx: Transaction, desc: String) extends PublishTx
   object PublishRawTx {
-    def apply(txInfo: TransactionWithInputInfo): PublishRawTx = PublishRawTx(txInfo.tx, txInfo.desc)
+    private def apply(tx: Transaction, desc: String): PublishRawTx = new PublishRawTx(tx, desc)
+    def apply(txInfo: TransactionWithInputInfo): PublishRawTx = new PublishRawTx(txInfo.tx, txInfo.desc)
+    def fundingTx(tx: Transaction): PublishRawTx = new PublishRawTx(tx, "funding-tx")
+    def commitTx(tx: Transaction): PublishRawTx = new PublishRawTx(tx, "commit-tx")
+    def forTesting(tx: Transaction, desc: String) = new PublishRawTx(tx, desc)
   }
   /**
    * Publish an unsigned transaction. Once (csv and cltv) delays have been satisfied, the tx publisher will set the fees,

@@ -58,11 +58,14 @@ class WaitForFundingCreatedStateSpec extends TestKitBaseClass with FixtureAnyFun
     val setup = init(aliceNodeParams, bobNodeParams)
 
     import setup._
+    val channelVersion = ChannelVersion.STANDARD
     val aliceInit = Init(aliceParams.features)
     val bobInit = Init(bobParams.features)
     within(30 seconds) {
-      alice ! INPUT_INIT_FUNDER(ByteVector32.Zeroes, fundingSatoshis, pushMsat, TestConstants.feeratePerKw, TestConstants.feeratePerKw, None, aliceParams, alice2bob.ref, bobInit, ChannelFlags.Empty, ChannelVersion.STANDARD)
-      bob ! INPUT_INIT_FUNDEE(ByteVector32.Zeroes, bobParams, bob2alice.ref, aliceInit, ChannelVersion.STANDARD)
+      alice ! INPUT_INIT_FUNDER(ByteVector32.Zeroes, fundingSatoshis, pushMsat, TestConstants.feeratePerKw, TestConstants.feeratePerKw, None, aliceParams, alice2bob.ref, bobInit, ChannelFlags.Empty, channelVersion)
+      alice2blockchain.expectMsgType[TxPublisher.SetChannelId]
+      bob ! INPUT_INIT_FUNDEE(ByteVector32.Zeroes, bobParams, bob2alice.ref, aliceInit, channelVersion)
+      bob2blockchain.expectMsgType[TxPublisher.SetChannelId]
       alice2bob.expectMsgType[OpenChannel]
       alice2bob.forward(bob)
       bob2alice.expectMsgType[AcceptChannel]
@@ -78,6 +81,7 @@ class WaitForFundingCreatedStateSpec extends TestKitBaseClass with FixtureAnyFun
     alice2bob.forward(bob)
     awaitCond(bob.stateName == WAIT_FOR_FUNDING_CONFIRMED)
     bob2alice.expectMsgType[FundingSigned]
+    bob2blockchain.expectMsgType[TxPublisher.SetChannelId]
     bob2blockchain.expectMsgType[WatchSpent]
     val watchConfirmed = bob2blockchain.expectMsgType[WatchConfirmed]
     assert(watchConfirmed.minDepth === Alice.nodeParams.minDepthBlocks)
@@ -89,6 +93,7 @@ class WaitForFundingCreatedStateSpec extends TestKitBaseClass with FixtureAnyFun
     alice2bob.forward(bob)
     awaitCond(bob.stateName == WAIT_FOR_FUNDING_CONFIRMED)
     bob2alice.expectMsgType[FundingSigned]
+    bob2blockchain.expectMsgType[TxPublisher.SetChannelId]
     bob2blockchain.expectMsgType[WatchSpent]
     val watchConfirmed = bob2blockchain.expectMsgType[WatchConfirmed]
     // when we are fundee, we use a higher min depth for wumbo channels

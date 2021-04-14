@@ -34,6 +34,10 @@ case class PimpSatoshi(private val underlying: Long) extends BtcAmount with Orde
   // @formatter:on
 }
 
+object PimpSatoshi {
+  def apply(input: Satoshi) = new PimpSatoshi(input.toLong)
+}
+
 case class MilliBtc(private val underlying: BigDecimal) extends BtcAmount with Ordered[MilliBtc] {
   // @formatter:off
   def +(other: MilliBtc) = MilliBtc(underlying + other.underlying)

@@ -38,7 +38,7 @@ import org.scalatest.funsuite.FixtureAnyFunSuiteLike
 import org.scalatest.{Outcome, ParallelTestExecution, Tag}
 import scodec.bits.ByteVector
 
-import java.net.{InetAddress, ServerSocket, Socket}
+import java.net.{ServerSocket, Socket}
 import java.util.concurrent.Executors
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
@@ -114,7 +114,7 @@ class PeerSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with Paralle
     system.actorOf(ClientSpawner.props(nodeParams.keyPair, nodeParams.socksProxy_opt, nodeParams.peerConnectionConf, TestProbe().ref, TestProbe().ref))
 
     // we create a dummy tcp server and update bob's announcement to point to it
-    val mockServer = new ServerSocket(0, 1, InetAddress.getLocalHost) // port will be assigned automatically
+    val mockServer = new ServerSocket(0, 1) // port will be assigned automatically
     val mockAddress = HostAndPort.fromParts(mockServer.getInetAddress.getHostAddress, mockServer.getLocalPort)
 
     val probe = TestProbe()
@@ -140,7 +140,7 @@ class PeerSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with Paralle
     system.actorOf(ClientSpawner.props(nodeParams.keyPair, nodeParams.socksProxy_opt, nodeParams.peerConnectionConf, TestProbe().ref, TestProbe().ref))
 
     // we create a dummy tcp server and update bob's announcement to point to it
-    val mockServer = new ServerSocket(0, 1, InetAddress.getLocalHost) // port will be assigned automatically
+    val mockServer = new ServerSocket(0, 1) // port will be assigned automatically
     val mockAddress = NodeAddress.fromParts(mockServer.getInetAddress.getHostAddress, mockServer.getLocalPort).get
 
     // we put the server address in the node db

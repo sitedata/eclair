@@ -16,6 +16,8 @@
 
 package fr.acinq.eclair.db.pg
 
+import fr.acinq.eclair.db.Monitoring.Metrics._
+import fr.acinq.eclair.db.Monitoring.Tags
 import fr.acinq.eclair.db.jdbc.JdbcUtils
 import fr.acinq.eclair.db.pg.PgUtils.PgLock.LockFailureHandler.LockException
 import grizzled.slf4j.Logging
@@ -177,14 +179,16 @@ object PgUtils extends JdbcUtils {
         using(connection.createStatement()) {
           statement =>
             // allow only one row in the ownership lease table
-            statement.executeUpdate(s"CREATE TABLE IF NOT EXISTS $LeaseTable (id INTEGER PRIMARY KEY default(1), expires_at TIMESTAMP NOT NULL, instance VARCHAR NOT NULL, CONSTRAINT one_row CHECK (id = 1))")
+            statement.executeUpdate(s"CREATE TABLE IF NOT EXISTS $LeaseTable (id INTEGER PRIMARY KEY default(1), expires_at TIMESTAMP WITH TIME ZONE NOT NULL, instance VARCHAR NOT NULL, CONSTRAINT one_row CHECK (id = 1))")
         }
       }
 
       private def acquireExclusiveTableLock()(implicit connection: Connection): Unit = {
         using(connection.createStatement()) {
           statement =>
-            statement.executeUpdate(s"LOCK TABLE $LeaseTable IN ACCESS EXCLUSIVE MODE NOWAIT")
+            withMetrics("utils/lock", Tags.DbBackends.Postgres) {
+              statement.executeUpdate(s"LOCK TABLE $LeaseTable IN ACCESS EXCLUSIVE MODE")
+            }
         }
       }
 
@@ -261,30 +265,6 @@ object PgUtils extends JdbcUtils {
     withConnection { connection =>
       inTransaction(connection)(f)
     }
-  }
-
-  /**
-   * Several logical databases (channels, network, peers) may be stored in the same physical postgres database.
-   * We keep track of their respective version using a dedicated table. The version entry will be created if
-   * there is none but will never be updated here (use setVersion to do that).
-   */
-  def getVersion(statement: Statement, db_name: String, currentVersion: Int): Int = {
-    statement.executeUpdate("CREATE TABLE IF NOT EXISTS versions (db_name TEXT NOT NULL PRIMARY KEY, version INTEGER NOT NULL)")
-    // if there was no version for the current db, then insert the current version
-    statement.executeUpdate(s"INSERT INTO versions VALUES ('$db_name', $currentVersion) ON CONFLICT DO NOTHING")
-    // if there was a previous version installed, this will return a different value from current version
-    val res = statement.executeQuery(s"SELECT version FROM versions WHERE db_name='$db_name'")
-    res.next()
-    res.getInt("version")
-  }
-
-  /**
-   * Updates the version for a particular logical database, it will overwrite the previous version.
-   */
-  def setVersion(statement: Statement, db_name: String, newVersion: Int): Unit = {
-    statement.executeUpdate("CREATE TABLE IF NOT EXISTS versions (db_name TEXT NOT NULL PRIMARY KEY, version INTEGER NOT NULL)")
-    // overwrite the existing version
-    statement.executeUpdate(s"UPDATE versions SET version=$newVersion WHERE db_name='$db_name'")
   }
 
 }

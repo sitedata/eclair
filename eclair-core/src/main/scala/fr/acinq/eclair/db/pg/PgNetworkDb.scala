@@ -39,13 +39,15 @@ class PgNetworkDb(implicit ds: DataSource) extends NetworkDb with Logging {
 
   inTransaction { pg =>
     using(pg.createStatement()) { statement =>
-      getVersion(statement, DB_NAME, CURRENT_VERSION) match {
-        case CURRENT_VERSION => () // nothing to do
-        case unknown => throw new IllegalArgumentException(s"unknown version $unknown for network db")
+      getVersion(statement, DB_NAME) match {
+        case None =>
+          statement.executeUpdate("CREATE TABLE nodes (node_id TEXT NOT NULL PRIMARY KEY, data BYTEA NOT NULL)")
+          statement.executeUpdate("CREATE TABLE channels (short_channel_id BIGINT NOT NULL PRIMARY KEY, txid TEXT NOT NULL, channel_announcement BYTEA NOT NULL, capacity_sat BIGINT NOT NULL, channel_update_1 BYTEA NULL, channel_update_2 BYTEA NULL)")
+          statement.executeUpdate("CREATE TABLE pruned (short_channel_id BIGINT NOT NULL PRIMARY KEY)")
+        case Some(CURRENT_VERSION) => () // table is up-to-date, nothing to do
+        case Some(unknownVersion) => throw new RuntimeException(s"Unknown version of DB $DB_NAME found, version=$unknownVersion")
       }
-      statement.executeUpdate("CREATE TABLE IF NOT EXISTS nodes (node_id TEXT NOT NULL PRIMARY KEY, data BYTEA NOT NULL)")
-      statement.executeUpdate("CREATE TABLE IF NOT EXISTS channels (short_channel_id BIGINT NOT NULL PRIMARY KEY, txid TEXT NOT NULL, channel_announcement BYTEA NOT NULL, capacity_sat BIGINT NOT NULL, channel_update_1 BYTEA NULL, channel_update_2 BYTEA NULL)")
-      statement.executeUpdate("CREATE TABLE IF NOT EXISTS pruned (short_channel_id BIGINT NOT NULL PRIMARY KEY)")
+      setVersion(statement, DB_NAME, CURRENT_VERSION)
     }
   }
 
@@ -139,13 +141,17 @@ class PgNetworkDb(implicit ds: DataSource) extends NetworkDb with Logging {
   }
 
   override def removeChannels(shortChannelIds: Iterable[ShortChannelId]): Unit = withMetrics("network/remove-channels", DbBackends.Postgres) {
+    val batchSize = 100
     inTransaction { pg =>
-      using(pg.createStatement) { statement =>
+      using(pg.prepareStatement(s"DELETE FROM channels WHERE short_channel_id IN (${List.fill(batchSize)("?").mkString(",")})")) { statement =>
         shortChannelIds
-          .grouped(1000) // remove channels by batch of 1000
-          .foreach { _ =>
-            val ids = shortChannelIds.map(_.toLong).mkString(",")
-            statement.executeUpdate(s"DELETE FROM channels WHERE short_channel_id IN ($ids)")
+          .grouped(batchSize)
+          .foreach { group =>
+            val padded = group.toArray.padTo(batchSize, ShortChannelId(0L))
+            for (i <- 0 until batchSize) {
+              statement.setLong(1 + i, padded(i).toLong) // index for jdbc parameters starts at 1
+            }
+            statement.executeUpdate()
           }
       }
     }
@@ -165,8 +171,9 @@ class PgNetworkDb(implicit ds: DataSource) extends NetworkDb with Logging {
 
   override def removeFromPruned(shortChannelId: ShortChannelId): Unit = withMetrics("network/remove-from-pruned", DbBackends.Postgres) {
     inTransaction { pg =>
-      using(pg.createStatement) { statement =>
-        statement.executeUpdate(s"DELETE FROM pruned WHERE short_channel_id=${shortChannelId.toLong}")
+      using(pg.prepareStatement(s"DELETE FROM pruned WHERE short_channel_id=?")) { statement =>
+        statement.setLong(1, shortChannelId.toLong)
+        statement.executeUpdate()
       }
     }
   }

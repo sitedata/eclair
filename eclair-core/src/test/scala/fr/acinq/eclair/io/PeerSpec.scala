@@ -107,7 +107,7 @@ class PeerSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with Paralle
     probe.expectMsg(PeerConnection.ConnectionResult.NoAddressFound)
   }
 
-  test("successfully connect to peer at user request") { f =>
+  ignore("successfully connect to peer at user request") { f =>
     import f._
 
     // this actor listens to connection requests and creates connections
@@ -133,7 +133,7 @@ class PeerSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with Paralle
     mockServer.close()
   }
 
-  test("successfully reconnect to peer at startup when there are existing channels", Tag("auto_reconnect")) { f =>
+  ignore("successfully reconnect to peer at startup when there are existing channels", Tag("auto_reconnect")) { f =>
     import f._
 
     // this actor listens to connection requests and creates connections

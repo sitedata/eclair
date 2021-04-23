@@ -23,12 +23,12 @@ import org.bouncycastle.crypto.params.KeyParameter
 import scodec.bits.ByteVector
 
 /**
-  * Created by t-bast on 04/07/19.
-  */
+ * Created by t-bast on 04/07/19.
+ */
 
 /**
-  * Create and verify message authentication codes.
-  */
+ * Create and verify message authentication codes.
+ */
 trait Mac32 {
 
   def mac(message: ByteVector): ByteVector32

@@ -17,9 +17,6 @@
 package fr.acinq.eclair.crypto
 
 import fr.acinq.bitcoin.crypto.Pack
-
-import java.math.BigInteger
-import java.nio.ByteOrder
 import fr.acinq.bitcoin.{ByteVector32, Crypto, PrivateKey, Protocol, PublicKey}
 import fr.acinq.eclair.randomBytes
 import grizzled.slf4j.Logging
@@ -29,16 +26,19 @@ import org.bouncycastle.crypto.params.KeyParameter
 import scodec.bits.ByteVector
 import fr.acinq.eclair.KotlinUtils._
 
+import java.math.BigInteger
+import java.nio.ByteOrder
+
 /**
-  * see http://noiseprotocol.org/
-  */
+ * see http://noiseprotocol.org/
+ */
 object Noise {
 
   case class KeyPair(pub: ByteVector, priv: ByteVector)
 
   /**
-    * Diffie-Helmann functions
-    */
+   * Diffie-Helmann functions
+   */
   trait DHFunctions {
     def name: String
 
@@ -60,12 +60,10 @@ object Noise {
     }
 
     /**
-      * this is what secp256k1's secp256k1_ecdh() returns
-      *
-      * @param keyPair
-      * @param publicKey
-      * @return sha256(publicKey * keyPair.priv in compressed format)
-      */
+     * this is what secp256k1's secp256k1_ecdh() returns
+     *
+     * @return sha256(publicKey * keyPair.priv in compressed format)
+     */
     override def dh(keyPair: KeyPair, publicKey: ByteVector): ByteVector = {
       ByteVector.view(Crypto.ecdh(new PrivateKey(keyPair.priv), new PublicKey(publicKey)))
     }
@@ -76,8 +74,8 @@ object Noise {
   }
 
   /**
-    * Cipher functions
-    */
+   * Cipher functions
+   */
   trait CipherFunctions {
     def name: String
 
@@ -113,8 +111,8 @@ object Noise {
   }
 
   /**
-    * Hash functions
-    */
+   * Hash functions
+   */
   trait HashFunctions extends Logging {
     def name: String
 
@@ -165,8 +163,8 @@ object Noise {
   }
 
   /**
-    * Cipher state
-    */
+   * Cipher state
+   */
   trait CipherState {
     def cipher: CipherFunctions
 
@@ -182,10 +180,10 @@ object Noise {
   }
 
   /**
-    * Uninitialized cipher state. Encrypt and decrypt do nothing (ciphertext = plaintext)
-    *
-    * @param cipher cipher functions
-    */
+   * Uninitialized cipher state. Encrypt and decrypt do nothing (ciphertext = plaintext)
+   *
+   * @param cipher cipher functions
+   */
   case class UninitializedCipherState(cipher: CipherFunctions) extends CipherState {
     override val hasKey = false
 
@@ -195,12 +193,12 @@ object Noise {
   }
 
   /**
-    * Initialized cipher state
-    *
-    * @param k      key
-    * @param n      nonce
-    * @param cipher cipher functions
-    */
+   * Initialized cipher state
+   *
+   * @param k      key
+   * @param n      nonce
+   * @param cipher cipher functions
+   */
   case class InitializedCipherState(k: ByteVector, n: Long, cipher: CipherFunctions) extends CipherState {
     require(k.length == 32)
 
@@ -223,12 +221,11 @@ object Noise {
   }
 
   /**
-    *
-    * @param cipherState   cipher state
-    * @param ck            chaining key
-    * @param h             hash
-    * @param hashFunctions hash functions
-    */
+   * @param cipherState   cipher state
+   * @param ck            chaining key
+   * @param h             hash
+   * @param hashFunctions hash functions
+   */
   case class SymmetricState(cipherState: CipherState, ck: ByteVector, h: ByteVector, hashFunctions: HashFunctions) extends Logging {
     def mixKey(inputKeyMaterial: ByteVector): SymmetricState = {
       logger.debug(s"ss = 0x$inputKeyMaterial")
@@ -270,19 +267,15 @@ object Noise {
     }
   }
 
+  // @formatter:off
   sealed trait MessagePattern
-
   case object S extends MessagePattern
-
   case object E extends MessagePattern
-
   case object EE extends MessagePattern
-
   case object ES extends MessagePattern
-
   case object SE extends MessagePattern
-
   case object SS extends MessagePattern
+  // @formatter:off
 
   type MessagePatterns = List[MessagePattern]
 
@@ -301,8 +294,8 @@ object Noise {
   }
 
   /**
-    * standard handshake patterns
-    */
+   * standard handshake patterns
+   */
 
   val handshakePatternNN = HandshakePattern("NN", initiatorPreMessages = Nil, responderPreMessages = Nil, messages = List(E :: Nil, E :: EE :: Nil))
   val handshakePatternXK = HandshakePattern("XK", initiatorPreMessages = Nil, responderPreMessages = S :: Nil, messages = List(E :: ES :: Nil, E :: EE :: Nil, S :: SE :: Nil))
@@ -313,7 +306,7 @@ object Noise {
 
   object RandomBytes extends ByteStream {
 
-    override def nextBytes(length: Int) = randomBytes(length)
+    override def nextBytes(length: Int): ByteVector = randomBytes(length)
   }
 
   sealed trait HandshakeState
@@ -322,13 +315,12 @@ object Noise {
     def toReader: HandshakeStateReader = HandshakeStateReader(messages, state, s, e, rs, re, dh, byteStream)
 
     /**
-      *
-      * @param payload input message (can be empty)
-      * @return a (reader, output, Option[(cipherstate, cipherstate)] tuple.
-      *         The output will be sent to the other side, and we will read its answer using the returned reader instance
-      *         When the handshake is over (i.e. there are no more handshake patterns to process) the last item will
-      *         contain 2 cipherstates than can be used to encrypt/decrypt further communication
-      */
+     * @param payload input message (can be empty)
+     * @return a (reader, output, Option[(cipherstate, cipherstate)] tuple.
+     *         The output will be sent to the other side, and we will read its answer using the returned reader instance
+     *         When the handshake is over (i.e. there are no more handshake patterns to process) the last item will
+     *         contain 2 cipherstates than can be used to encrypt/decrypt further communication
+     */
     def write(payload: ByteVector): (HandshakeStateReader, ByteVector, Option[(CipherState, CipherState, ByteVector)]) = {
       require(messages.nonEmpty)
       logger.debug(s"write($payload)")
@@ -374,14 +366,13 @@ object Noise {
   case class HandshakeStateReader(messages: List[MessagePatterns], state: SymmetricState, s: KeyPair, e: KeyPair, rs: ByteVector, re: ByteVector, dh: DHFunctions, byteStream: ByteStream) extends HandshakeState with Logging {
     def toWriter: HandshakeStateWriter = HandshakeStateWriter(messages, state, s, e, rs, re, dh, byteStream)
 
-    /** *
-      *
-      * @param message input message
-      * @return a (writer, payload, Option[(cipherstate, cipherstate)] tuple.
-      *         The payload contains the original payload used by the sender and a writer that will be used to create the
-      *         next message. When the handshake is over (i.e. there are no more handshake patterns to process) the last item will
-      *         contain 2 cipherstates than can be used to encrypt/decrypt further communication
-      */
+    /**
+     * @param message input message
+     * @return a (writer, payload, Option[(cipherstate, cipherstate)] tuple.
+     *         The payload contains the original payload used by the sender and a writer that will be used to create the
+     *         next message. When the handshake is over (i.e. there are no more handshake patterns to process) the last item will
+     *         contain 2 cipherstates than can be used to encrypt/decrypt further communication
+     */
     def read(message: ByteVector): (HandshakeStateWriter, ByteVector, Option[(CipherState, CipherState, ByteVector)]) = {
       logger.debug(s"input: 0x$message")
       val (reader1, buffer1) = messages.head.foldLeft(this -> message) {

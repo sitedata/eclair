@@ -490,7 +490,8 @@ class ExtendedBitcoinClientSpec extends TestKitBaseClass with BitcoindService wi
     val sender = TestProbe()
     val bitcoinClient = new ExtendedBitcoinClient(bitcoinrpcclient)
     val tx = sendToAddress(getNewAddress(sender), 2500 sat, sender)
-    bitcoinClient.cpfp(Set(OutPoint(tx, 0)), FeeratePerKw(25000 sat)).pipeTo(sender.ref)
+    val outputIndex = if (tx.txOut.head.amount == 2500.sat) 0 else 1
+    bitcoinClient.cpfp(Set(OutPoint(tx, outputIndex)), FeeratePerKw(50000 sat)).pipeTo(sender.ref)
     val failure = sender.expectMsgType[Failure]
     assert(failure.cause.getMessage.contains("input amount is not sufficient to cover the target feerate"))
   }

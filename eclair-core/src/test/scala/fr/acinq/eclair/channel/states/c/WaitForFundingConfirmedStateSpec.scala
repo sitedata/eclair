@@ -19,7 +19,9 @@ package fr.acinq.eclair.channel.states.c
 import akka.testkit.{TestFSMRef, TestProbe}
 import fr.acinq.bitcoin.{ByteVector32, SatoshiLong, Script, Transaction}
 import fr.acinq.eclair.TestConstants.{Alice, Bob}
-import fr.acinq.eclair.blockchain._
+import fr.acinq.eclair.blockchain.CurrentBlockCount
+import fr.acinq.eclair.blockchain.bitcoind.ZmqWatcher._
+import fr.acinq.eclair.channel.Channel.{BITCOIN_FUNDING_PUBLISH_FAILED, BITCOIN_FUNDING_TIMEOUT}
 import fr.acinq.eclair.channel.TxPublisher.{PublishRawTx, PublishTx}
 import fr.acinq.eclair.channel._
 import fr.acinq.eclair.channel.states.StateTestsBase
@@ -60,8 +62,8 @@ class WaitForFundingConfirmedStateSpec extends TestKitBaseClass with FixtureAnyF
       bob2alice.expectMsgType[FundingSigned]
       bob2alice.forward(alice)
       alice2blockchain.expectMsgType[TxPublisher.SetChannelId]
-      alice2blockchain.expectMsgType[WatchSpent]
-      alice2blockchain.expectMsgType[WatchConfirmed]
+      alice2blockchain.expectMsgType[WatchFundingSpent]
+      alice2blockchain.expectMsgType[WatchFundingConfirmed]
       awaitCond(alice.stateName == WAIT_FOR_FUNDING_CONFIRMED)
       withFixture(test.toNoArgTest(FixtureParam(alice, bob, alice2bob, bob2alice, alice2blockchain)))
     }
@@ -71,37 +73,37 @@ class WaitForFundingConfirmedStateSpec extends TestKitBaseClass with FixtureAnyF
     import f._
     // make bob send a FundingLocked msg
     val fundingTx = alice.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].fundingTx.get
-    bob ! WatchEventConfirmed(BITCOIN_FUNDING_DEPTHOK, 42000, 42, fundingTx)
+    bob ! WatchFundingConfirmedTriggered(42000, 42, fundingTx)
     val msg = bob2alice.expectMsgType[FundingLocked]
     bob2alice.forward(alice)
     awaitCond(alice.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].deferred.contains(msg))
     awaitCond(alice.stateName == WAIT_FOR_FUNDING_CONFIRMED)
   }
 
-  test("recv BITCOIN_FUNDING_DEPTHOK") { f =>
+  test("recv WatchFundingConfirmedTriggered") { f =>
     import f._
     val fundingTx = alice.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].fundingTx.get
-    alice ! WatchEventConfirmed(BITCOIN_FUNDING_DEPTHOK, 42000, 42, fundingTx)
+    alice ! WatchFundingConfirmedTriggered(42000, 42, fundingTx)
     awaitCond(alice.stateName == WAIT_FOR_FUNDING_LOCKED)
-    alice2blockchain.expectMsgType[WatchLost]
+    alice2blockchain.expectMsgType[WatchFundingLost]
     alice2bob.expectMsgType[FundingLocked]
   }
 
-  test("recv BITCOIN_FUNDING_DEPTHOK (bad funding pubkey script)") { f =>
+  test("recv WatchFundingConfirmedTriggered (bad funding pubkey script)") { f =>
     import f._
     val fundingTx = alice.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].fundingTx.get
     val badOutputScript = fundingTx.txOut.head.updatePublicKeyScript(Script.write(multiSig2of2(randomKey.publicKey, randomKey.publicKey)))
     val badFundingTx = fundingTx.updateOutputs(Seq(badOutputScript))
-    alice ! WatchEventConfirmed(BITCOIN_FUNDING_DEPTHOK, 42000, 42, badFundingTx)
+    alice ! WatchFundingConfirmedTriggered(42000, 42, badFundingTx)
     awaitCond(alice.stateName == CLOSED)
   }
 
-  test("recv BITCOIN_FUNDING_DEPTHOK (bad funding amount)") { f =>
+  test("recv WatchFundingConfirmedTriggered (bad funding amount)") { f =>
     import f._
     val fundingTx = alice.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].fundingTx.get
     val badOutputAmount = fundingTx.txOut.head.updateAmount(1234567.sat)
     val badFundingTx = fundingTx.updateOutputs(Seq(badOutputAmount))
-    alice ! WatchEventConfirmed(BITCOIN_FUNDING_DEPTHOK, 42000, 42, badFundingTx)
+    alice ! WatchFundingConfirmedTriggered(42000, 42, badFundingTx)
     awaitCond(alice.stateName == CLOSED)
   }
 
@@ -160,20 +162,20 @@ class WaitForFundingConfirmedStateSpec extends TestKitBaseClass with FixtureAnyF
     assert(bob.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].waitingSinceBlock === currentBlockHeight)
   }
 
-  test("recv BITCOIN_FUNDING_SPENT (remote commit)") { f =>
+  test("recv WatchFundingSpentTriggered (remote commit)") { f =>
     import f._
     // bob publishes his commitment tx
     val tx = bob.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].commitments.localCommit.publishableTxs.commitTx.tx
-    alice ! WatchEventSpent(BITCOIN_FUNDING_SPENT, tx)
+    alice ! WatchFundingSpentTriggered(tx)
     alice2blockchain.expectMsgType[PublishTx]
-    alice2blockchain.expectMsgType[WatchConfirmed]
+    assert(alice2blockchain.expectMsgType[WatchTxConfirmed].txId === tx.txid)
     awaitCond(alice.stateName == CLOSING)
   }
 
-  test("recv BITCOIN_FUNDING_SPENT (other commit)") { f =>
+  test("recv WatchFundingSpentTriggered (other commit)") { f =>
     import f._
     val tx = alice.stateData.asInstanceOf[DATA_WAIT_FOR_FUNDING_CONFIRMED].commitments.localCommit.publishableTxs.commitTx.tx
-    alice ! WatchEventSpent(BITCOIN_FUNDING_SPENT, new Transaction(0, Nil, Nil, 0))
+    alice ! WatchFundingSpentTriggered(new Transaction(0, Nil, Nil, 0))
     alice2bob.expectMsgType[Error]
     assert(alice2blockchain.expectMsgType[PublishRawTx].tx === tx)
     awaitCond(alice.stateName == ERR_INFORMATION_LEAK)
@@ -186,7 +188,7 @@ class WaitForFundingConfirmedStateSpec extends TestKitBaseClass with FixtureAnyF
     awaitCond(alice.stateName == CLOSING)
     assert(alice2blockchain.expectMsgType[PublishRawTx].tx === tx)
     alice2blockchain.expectMsgType[PublishTx] // claim-main-delayed
-    assert(alice2blockchain.expectMsgType[WatchConfirmed].event === BITCOIN_TX_CONFIRMED(tx))
+    assert(alice2blockchain.expectMsgType[WatchTxConfirmed].txId === tx.txid)
   }
 
   test("recv CMD_CLOSE") { f =>
@@ -205,7 +207,7 @@ class WaitForFundingConfirmedStateSpec extends TestKitBaseClass with FixtureAnyF
     awaitCond(alice.stateName == CLOSING)
     assert(alice2blockchain.expectMsgType[PublishRawTx].tx === tx)
     alice2blockchain.expectMsgType[PublishTx] // claim-main-delayed
-    assert(alice2blockchain.expectMsgType[WatchConfirmed].event === BITCOIN_TX_CONFIRMED(tx))
+    assert(alice2blockchain.expectMsgType[WatchTxConfirmed].txId === tx.txid)
   }
 
 }

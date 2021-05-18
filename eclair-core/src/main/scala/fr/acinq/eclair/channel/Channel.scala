@@ -864,6 +864,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
 
     case Event(c: CMD_CLOSE, d: DATA_NORMAL) =>
       val localScriptPubKey = c.scriptPubKey.getOrElse(d.commitments.localParams.defaultFinalScriptPubKey)
+      val allowAnySegwit = Features.canUseFeature(d.commitments.localParams.features, d.commitments.remoteParams.features, Features.ShutdownAnySegwit)
       if (d.localShutdown.isDefined) {
         handleCommandError(ClosingAlreadyInProgress(d.channelId), c)
       } else if (Commitments.localHasUnsignedOutgoingHtlcs(d.commitments)) {
@@ -871,7 +872,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
         handleCommandError(CannotCloseWithUnsignedOutgoingHtlcs(d.channelId), c)
       } else if (Commitments.localHasUnsignedOutgoingUpdateFee(d.commitments)) {
         handleCommandError(CannotCloseWithUnsignedOutgoingUpdateFee(d.channelId), c)
-      } else if (!Closing.isValidFinalScriptPubkey(localScriptPubKey.toArray)) {
+      } else if (!Closing.isValidFinalScriptPubkey(localScriptPubKey, allowAnySegwit)) {
         handleCommandError(InvalidFinalScript(d.channelId), c)
       } else {
         val shutdown = Shutdown(d.channelId, localScriptPubKey)
@@ -893,7 +894,8 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
       //      we did not send a shutdown message
       //        there are pending signed changes  => go to SHUTDOWN
       //        there are no htlcs                => go to NEGOTIATING
-      if (!Closing.isValidFinalScriptPubkey(remoteScriptPubKey.toArray)) {
+      val allowAnySegwit = Features.canUseFeature(d.commitments.localParams.features, d.commitments.remoteParams.features, Features.ShutdownAnySegwit)
+      if (!Closing.isValidFinalScriptPubkey(remoteScriptPubKey.toArray, allowAnySegwit)) {
         handleLocalError(InvalidFinalScript(d.channelId), d, Some(remoteShutdown))
       } else if (Commitments.remoteHasUnsignedOutgoingHtlcs(d.commitments)) {
         handleLocalError(CannotCloseWithUnsignedOutgoingHtlcs(d.channelId), d, Some(remoteShutdown))

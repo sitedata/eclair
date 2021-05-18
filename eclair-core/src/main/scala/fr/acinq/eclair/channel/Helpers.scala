@@ -17,10 +17,9 @@
 package fr.acinq.eclair.channel
 
 import akka.event.{DiagnosticLoggingAdapter, LoggingAdapter}
-import fr.acinq.bitcoin.{PrivateKey, PublicKey}
+import fr.acinq.bitcoin.{OP_PUSHDATA, PrivateKey, PublicKey, _}
 import fr.acinq.bitcoin.Crypto.{ripemd160, sha256}
 import fr.acinq.bitcoin.Script._
-import fr.acinq.bitcoin._
 import fr.acinq.eclair._
 import fr.acinq.eclair.blockchain.EclairWallet
 import fr.acinq.eclair.blockchain.fee.{FeeEstimator, FeeTargets, FeeratePerKw}
@@ -413,11 +412,22 @@ object Helpers {
     // used only to compute tx weights and estimate fees
     lazy val dummyPublicKey = new PrivateKey(Hex.decode("0101010101010101010101010101010101010101010101010101010101010101")).publicKey
 
-    def isValidFinalScriptPubkey(scriptPubKey: Array[Byte]): Boolean = {
-      Try(Script.parse(scriptPubKey)).map(parsed => Script.isPay2pkh(parsed) || Script.isPay2sh(parsed) || Script.isPay2wpkh(parsed) || Script.isPay2wsh(parsed)).getOrElse(false)
+    def isValidFinalScriptPubkey(scriptPubKey: Array[Byte], allowAnySegwit: Boolean): Boolean = {
+      def isSegwitScript(script: java.util.List[ScriptElt]): Boolean = {
+
+        def isSegwitVersion(item: ScriptElt) = item match {
+          case OP_1.INSTANCE | OP_2.INSTANCE | OP_3.INSTANCE | OP_4.INSTANCE | OP_5.INSTANCE | OP_6.INSTANCE | OP_7.INSTANCE | OP_8.INSTANCE | OP_9.INSTANCE | OP_10.INSTANCE | OP_11.INSTANCE | OP_12.INSTANCE | OP_13.INSTANCE | OP_14.INSTANCE | OP_15.INSTANCE | OP_16.INSTANCE => true
+          case _ => false
+        }
+        def isSegwitProgram(item: ScriptElt) = item.isInstanceOf[OP_PUSHDATA] && item.asInstanceOf[OP_PUSHDATA].data.size() >= 2 && item.asInstanceOf[OP_PUSHDATA].data.size() <= 40
+
+        allowAnySegwit && script.length == 2 && isSegwitVersion(script.get(0)) && isSegwitProgram(script.get(1))
+      }
+
+      Try(Script.parse(scriptPubKey)).map(parsed => Script.isPay2pkh(parsed) || Script.isPay2sh(parsed) || Script.isPay2wpkh(parsed) || Script.isPay2wsh(parsed) || isSegwitScript(parsed)).getOrElse(false)
     }
 
-    def isValidFinalScriptPubkey(scriptPubKey: ByteVector): Boolean = isValidFinalScriptPubkey(scriptPubKey.toArray)
+    def isValidFinalScriptPubkey(scriptPubKey: ByteVector, allowAnySegwit: Boolean): Boolean = isValidFinalScriptPubkey(scriptPubKey.toArray, allowAnySegwit)
 
     def firstClosingFee(commitments: Commitments, localScriptPubkey: ByteVector, remoteScriptPubkey: ByteVector, feeratePerKw: FeeratePerKw)(implicit log: LoggingAdapter): Satoshi = {
       import commitments._
@@ -448,8 +458,9 @@ object Helpers {
 
     def makeClosingTx(keyManager: ChannelKeyManager, commitments: Commitments, localScriptPubkey: ByteVector, remoteScriptPubkey: ByteVector, closingFee: Satoshi)(implicit log: LoggingAdapter): (ClosingTx, ClosingSigned) = {
       import commitments._
-      require(isValidFinalScriptPubkey(localScriptPubkey), "invalid localScriptPubkey")
-      require(isValidFinalScriptPubkey(remoteScriptPubkey), "invalid remoteScriptPubkey")
+      val allowAnySegwit = Features.canUseFeature(commitments.localParams.features, commitments.remoteParams.features, Features.ShutdownAnySegwit)
+      require(isValidFinalScriptPubkey(localScriptPubkey, allowAnySegwit), "invalid localScriptPubkey")
+      require(isValidFinalScriptPubkey(remoteScriptPubkey, allowAnySegwit), "invalid remoteScriptPubkey")
       log.debug("making closing tx with closingFee={} and commitments:\n{}", closingFee, Commitments.specs2String(commitments))
       val dustLimitSatoshis = localParams.dustLimit.max(remoteParams.dustLimit)
       val closingTx = Transactions.makeClosingTx(commitInput, localScriptPubkey, remoteScriptPubkey, localParams.isFunder, dustLimitSatoshis, closingFee, localCommit.spec)

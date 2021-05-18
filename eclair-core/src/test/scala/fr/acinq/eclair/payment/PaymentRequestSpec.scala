@@ -404,7 +404,7 @@ class PaymentRequestSpec extends AnyFunSuite {
       // those are useful for nonreg testing of the areSupported method (which needs to be updated with every new supported mandatory bit)
       PaymentRequestFeatures(bin"          0010000000000000000000000") -> Result(allowMultiPart = false, requirePaymentSecret = false, areSupported = false),
       PaymentRequestFeatures(bin"     000001000000000000000000000000") -> Result(allowMultiPart = false, requirePaymentSecret = false, areSupported = false),
-      PaymentRequestFeatures(bin"     000100000000000000000000000000") -> Result(allowMultiPart = false, requirePaymentSecret = false, areSupported = false),
+      PaymentRequestFeatures(bin"     000100000000000000000000000000") -> Result(allowMultiPart = false, requirePaymentSecret = false, areSupported = true),
       PaymentRequestFeatures(bin"00000010000000000000000000000000000") -> Result(allowMultiPart = false, requirePaymentSecret = false, areSupported = false),
       PaymentRequestFeatures(bin"00001000000000000000000000000000000") -> Result(allowMultiPart = false, requirePaymentSecret = false, areSupported = false)
     )
@@ -436,8 +436,8 @@ class PaymentRequestSpec extends AnyFunSuite {
   test("payment secret") {
     val pr = PaymentRequest(Block.LivenetGenesisBlock.hash, Some(123 msat), ByteVector32.One, priv, "Some invoice", CltvExpiryDelta(18))
     assert(pr.paymentSecret.isDefined)
-    assert(pr.features === PaymentRequestFeatures(PaymentSecret.optional, VariableLengthOnion.optional))
-    assert(!pr.features.requirePaymentSecret)
+    assert(pr.features === PaymentRequestFeatures(PaymentSecret.mandatory, VariableLengthOnion.mandatory))
+    assert(pr.features.requirePaymentSecret)
 
     val pr1 = PaymentRequest.read(PaymentRequest.write(pr))
     assert(pr1.paymentSecret === pr.paymentSecret)

@@ -250,7 +250,7 @@ class PeerConnectionSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wi
   test("filter gossip message (no filtering)") { f =>
     import f._
     val probe = TestProbe()
-    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey.publicKey))
+    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey().publicKey))
     connect(nodeParams, remoteNodeId, switchboard, router, connection, transport, peerConnection, peer)
     val rebroadcast = Rebroadcast(channels.map(_ -> gossipOrigin).toMap, updates.map(_ -> gossipOrigin).toMap, nodes.map(_ -> gossipOrigin).toMap)
     probe.send(peerConnection, rebroadcast)
@@ -260,7 +260,7 @@ class PeerConnectionSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wi
   test("filter gossip message (filtered by origin)") { f =>
     import f._
     connect(nodeParams, remoteNodeId, switchboard, router, connection, transport, peerConnection, peer)
-    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey.publicKey))
+    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey().publicKey))
     val bobOrigin = RemoteGossip(peerConnection, remoteNodeId)
     val rebroadcast = Rebroadcast(
       channels.map(_ -> gossipOrigin).toMap + (channels(5) -> Set(bobOrigin)),
@@ -279,7 +279,7 @@ class PeerConnectionSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wi
   test("filter gossip message (filtered by timestamp)") { f =>
     import f._
     connect(nodeParams, remoteNodeId, switchboard, router, connection, transport, peerConnection, peer)
-    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey.publicKey))
+    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey().publicKey))
     val rebroadcast = Rebroadcast(channels.map(_ -> gossipOrigin).toMap, updates.map(_ -> gossipOrigin).toMap, nodes.map(_ -> gossipOrigin).toMap)
     val timestamps = updates.map(_.timestamp).sorted.slice(10, 30)
     val filter = protocol.GossipTimestampFilter(Alice.nodeParams.chainHash, timestamps.head, timestamps.last - timestamps.head)
@@ -297,7 +297,7 @@ class PeerConnectionSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wi
     import f._
     val probe = TestProbe()
     connect(nodeParams, remoteNodeId, switchboard, router, connection, transport, peerConnection, peer)
-    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey.publicKey))
+    val gossipOrigin = Set[GossipOrigin](RemoteGossip(TestProbe().ref, randomKey().publicKey))
     val rebroadcast = Rebroadcast(
       channels.map(_ -> gossipOrigin).toMap + (channels(5) -> Set(LocalGossip)),
       updates.map(_ -> gossipOrigin).toMap + (updates(6) -> (gossipOrigin + LocalGossip)) + (updates(10) -> Set(LocalGossip)),

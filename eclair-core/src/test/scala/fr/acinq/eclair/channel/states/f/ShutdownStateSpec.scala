@@ -50,8 +50,8 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
 
   type FixtureParam = SetupFixture
 
-  val r1 = randomBytes32
-  val r2 = randomBytes32
+  val r1 = randomBytes32()
+  val r2 = randomBytes32()
 
   override def withFixture(test: OneArgTest): Outcome = {
     val setup = init()
@@ -130,7 +130,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     import f._
     val sender = TestProbe()
     val initialState = bob.stateData.asInstanceOf[DATA_SHUTDOWN]
-    bob ! CMD_FULFILL_HTLC(42, randomBytes32, replyTo_opt = Some(sender.ref))
+    bob ! CMD_FULFILL_HTLC(42, randomBytes32(), replyTo_opt = Some(sender.ref))
     sender.expectMsgType[RES_FAILURE[CMD_FULFILL_HTLC, UnknownHtlcId]]
     assert(initialState == bob.stateData)
   }
@@ -167,7 +167,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     val sender = TestProbe()
     val initialState = bob.stateData.asInstanceOf[DATA_SHUTDOWN]
 
-    val c = CMD_FULFILL_HTLC(42, randomBytes32, replyTo_opt = Some(sender.ref))
+    val c = CMD_FULFILL_HTLC(42, randomBytes32(), replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
     awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
@@ -252,7 +252,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     import f._
     val sender = TestProbe()
     val initialState = bob.stateData.asInstanceOf[DATA_SHUTDOWN]
-    val c = CMD_FAIL_MALFORMED_HTLC(42, randomBytes32, FailureMessageCodecs.BADONION, replyTo_opt = Some(sender.ref))
+    val c = CMD_FAIL_MALFORMED_HTLC(42, randomBytes32(), FailureMessageCodecs.BADONION, replyTo_opt = Some(sender.ref))
     bob ! c
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
     assert(initialState == bob.stateData)
@@ -262,7 +262,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     import f._
     val sender = TestProbe()
     val initialState = bob.stateData.asInstanceOf[DATA_SHUTDOWN]
-    val c = CMD_FAIL_MALFORMED_HTLC(42, randomBytes32, 42, replyTo_opt = Some(sender.ref))
+    val c = CMD_FAIL_MALFORMED_HTLC(42, randomBytes32(), 42, replyTo_opt = Some(sender.ref))
     bob ! c
     sender.expectMsg(RES_FAILURE(c, InvalidFailureCode(channelId(bob))))
     assert(initialState == bob.stateData)
@@ -272,7 +272,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     import f._
     val sender = TestProbe()
     val initialState = bob.stateData.asInstanceOf[DATA_SHUTDOWN]
-    val c = CMD_FAIL_MALFORMED_HTLC(42, randomBytes32, FailureMessageCodecs.BADONION, replyTo_opt = Some(sender.ref))
+    val c = CMD_FAIL_MALFORMED_HTLC(42, randomBytes32(), FailureMessageCodecs.BADONION, replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
     awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
@@ -447,7 +447,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     bob2alice.forward(alice)
     alice2bob.expectMsgType[RevokeAndAck]
     awaitCond(bob.stateData.asInstanceOf[DATA_SHUTDOWN].commitments.remoteNextCommitInfo.isLeft)
-    bob ! RevokeAndAck(ByteVector32.Zeroes, new PrivateKey(randomBytes32), new PrivateKey(randomBytes32).publicKey)
+    bob ! RevokeAndAck(ByteVector32.Zeroes, new PrivateKey(randomBytes32()), new PrivateKey(randomBytes32()).publicKey)
     bob2alice.expectMsgType[Error]
     awaitCond(bob.stateName == CLOSING)
     assert(bob2blockchain.expectMsgType[PublishRawTx].tx === tx) // commit tx
@@ -460,7 +460,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     import f._
     val tx = alice.stateData.asInstanceOf[DATA_SHUTDOWN].commitments.localCommit.publishableTxs.commitTx.tx
     awaitCond(alice.stateData.asInstanceOf[DATA_SHUTDOWN].commitments.remoteNextCommitInfo.isRight)
-    alice ! RevokeAndAck(ByteVector32.Zeroes, new PrivateKey(randomBytes32), new PrivateKey(randomBytes32).publicKey)
+    alice ! RevokeAndAck(ByteVector32.Zeroes, new PrivateKey(randomBytes32()), new PrivateKey(randomBytes32()).publicKey)
     alice2bob.expectMsgType[Error]
     awaitCond(alice.stateName == CLOSING)
     assert(alice2blockchain.expectMsgType[PublishRawTx].tx === tx) // commit tx

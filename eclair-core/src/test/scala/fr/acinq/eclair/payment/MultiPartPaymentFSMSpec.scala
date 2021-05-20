@@ -227,7 +227,7 @@ class MultiPartPaymentFSMSpec extends TestKitBaseClass with AnyFunSuiteLike {
 
 object MultiPartPaymentFSMSpec {
 
-  val paymentHash = randomBytes32
+  val paymentHash = randomBytes32()
 
   def htlcIdToChannelId(htlcId: Long) = new ByteVector32(ByteVector.fromLong(htlcId).padLeft(32).toArray)
 

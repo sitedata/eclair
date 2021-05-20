@@ -278,7 +278,7 @@ class ClosingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with
 
     // actual test starts here
     val sender = TestProbe()
-    val c = CMD_FULFILL_HTLC(42, randomBytes32, replyTo_opt = Some(sender.ref))
+    val c = CMD_FULFILL_HTLC(42, randomBytes32(), replyTo_opt = Some(sender.ref))
     alice ! c
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(alice), 42)))
 
@@ -364,7 +364,7 @@ class ClosingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with
     // scenario 1: bob claims the htlc output from the commit tx using its preimage
     val claimHtlcSuccessFromCommitTx = new Transaction(
       0,
-      new TxIn(new OutPoint(randomBytes32, 0), 0).updateWitness(Scripts.witnessClaimHtlcSuccessFromCommitTx(Transactions.PlaceHolderSig, ra1, ByteVector.fill(130)(33))) :: Nil,
+      new TxIn(new OutPoint(randomBytes32(), 0), 0).updateWitness(Scripts.witnessClaimHtlcSuccessFromCommitTx(Transactions.PlaceHolderSig, ra1, ByteVector.fill(130)(33))) :: Nil,
       Nil,
       0)
     alice ! WatchOutputSpentTriggered(claimHtlcSuccessFromCommitTx)
@@ -374,7 +374,7 @@ class ClosingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with
 
     // scenario 2: bob claims the htlc output from his own commit tx using its preimage (let's assume both parties had published their commitment tx)
     val claimHtlcSuccessTx = new Transaction(0,
-      new TxIn(new OutPoint(randomBytes32, 0), 0).updateWitness(Scripts.witnessHtlcSuccess(Transactions.PlaceHolderSig, Transactions.PlaceHolderSig, ra1, ByteVector.fill(130)(33), Transactions.DefaultCommitmentFormat)) :: Nil,
+      new TxIn(new OutPoint(randomBytes32(), 0), 0).updateWitness(Scripts.witnessHtlcSuccess(Transactions.PlaceHolderSig, Transactions.PlaceHolderSig, ra1, ByteVector.fill(130)(33), Transactions.DefaultCommitmentFormat)) :: Nil,
       Nil,
       0)
     alice ! WatchOutputSpentTriggered(claimHtlcSuccessTx)
@@ -1415,7 +1415,7 @@ class ClosingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with
     alice2blockchain.expectNoMsg(1 second)
 
     // bob RBFs his htlc-success with a different transaction
-    val bobHtlcSuccessTx2 = bobHtlcSuccessTx1.tx.updateInputs(new TxIn(new OutPoint(randomBytes32, 0), Nil, 0) +: bobHtlcSuccessTx1.tx.txIn)
+    val bobHtlcSuccessTx2 = bobHtlcSuccessTx1.tx.updateInputs(new TxIn(new OutPoint(randomBytes32(), 0), Nil, 0) +: bobHtlcSuccessTx1.tx.txIn)
     assert(bobHtlcSuccessTx2.txid !== bobHtlcSuccessTx1.tx.txid)
     alice ! WatchOutputSpentTriggered(bobHtlcSuccessTx2)
     awaitCond(alice.stateData.asInstanceOf[DATA_CLOSING].revokedCommitPublished.head.claimHtlcDelayedPenaltyTxs.size == 3)
@@ -1496,14 +1496,14 @@ class ClosingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with
     val bobHtlcTx = new Transaction(
       2,
       Seq(
-        new TxIn(new OutPoint(randomBytes32, 4), Nil, 1), // utxo used for fee bumping
+        new TxIn(new OutPoint(randomBytes32(), 4), Nil, 1), // utxo used for fee bumping
         bobHtlcTxs(0).tx.txIn.head,
         bobHtlcTxs(1).tx.txIn.head,
         bobHtlcTxs(2).tx.txIn.head,
         bobHtlcTxs(3).tx.txIn.head
       ),
       Seq(
-        new TxOut(10000 sat, Script.pay2wpkh(randomKey.publicKey)), // change output
+        new TxOut(10000 sat, Script.pay2wpkh(randomKey().publicKey)), // change output
         bobHtlcTxs(0).tx.txOut.head,
         bobHtlcTxs(1).tx.txOut.head,
         bobHtlcTxs(2).tx.txOut.head,

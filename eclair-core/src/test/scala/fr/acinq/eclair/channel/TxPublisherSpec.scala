@@ -358,7 +358,7 @@ class TxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoin
         val amountOut = dustLimit plus new Satoshi(Random.nextLong(amountIn.toLong))
         val unsignedTx = anchorTxInfo.copy(tx = anchorTxInfo.tx
           .updateInputs(anchorTxInfo.tx.txIn ++ walletInputs)
-          .updateOutputs(new TxOut(amountOut, Script.pay2wpkh(randomKey.publicKey)) :: Nil)
+          .updateOutputs(new TxOut(amountOut, Script.pay2wpkh(randomKey().publicKey)) :: Nil)
         )
         val adjustedTx = adjustAnchorOutputChange(unsignedTx, commitTx, amountIn, commitFeerate, TestConstants.feeratePerKw, dustLimit)
         assert(adjustedTx.tx.txIn.size === unsignedTx.tx.txIn.size)
@@ -602,9 +602,9 @@ class TxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoin
       val targetFeerate = TestConstants.feeratePerKw
       for (_ <- 1 to 100) {
         val walletInputsCount = 1 + Random.nextInt(5)
-        val walletInputs = (1 to walletInputsCount).map(_ => new TxIn(new OutPoint(randomBytes32, 0), Nil, 0))
+        val walletInputs = (1 to walletInputsCount).map(_ => new TxIn(new OutPoint(randomBytes32(), 0), Nil, 0))
         val walletAmountIn = dustLimit times walletInputsCount plus Random.nextInt(25_000_000).sat
-        val changeOutput = new TxOut(new Satoshi(Random.nextLong(walletAmountIn.toLong)), Script.pay2wpkh(randomKey.publicKey))
+        val changeOutput = new TxOut(new Satoshi(Random.nextLong(walletAmountIn.toLong)), Script.pay2wpkh(randomKey().publicKey))
         val unsignedHtlcSuccessTx = htlcSuccess.txInfo.asInstanceOf[HtlcSuccessTx].copy(tx = htlcSuccess.tx
           .updateInputs(htlcSuccess.tx.txIn ++ walletInputs)
           .updateOutputs(htlcSuccess.tx.txOut ++ Seq(changeOutput))

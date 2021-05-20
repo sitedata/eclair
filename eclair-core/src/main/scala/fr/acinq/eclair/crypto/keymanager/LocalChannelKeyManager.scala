@@ -17,14 +17,15 @@
 package fr.acinq.eclair.crypto.keymanager
 
 import com.google.common.cache.{CacheBuilder, CacheLoader, LoadingCache}
-import fr.acinq.bitcoin.{Block, ByteVector32, ByteVector64, Crypto, DeterministicWallet, KeyPath, PrivateKey, PublicKey}
+import fr.acinq.bitcoin.{PrivateKey, PublicKey}
 import fr.acinq.bitcoin.DeterministicWallet.{derivePrivateKey, _}
+import fr.acinq.bitcoin.{Block, ByteVector32, ByteVector64, Crypto, DeterministicWallet, KeyPath}
 import fr.acinq.eclair.crypto.Generators
 import fr.acinq.eclair.crypto.Monitoring.{Metrics, Tags}
 import fr.acinq.eclair.router.Announcements
 import fr.acinq.eclair.transactions.Transactions
 import fr.acinq.eclair.transactions.Transactions.{CommitmentFormat, TransactionWithInputInfo, TxOwner}
-import fr.acinq.eclair.{KamonExt, secureRandom}
+import fr.acinq.eclair.{KamonExt, randomLong}
 import grizzled.slf4j.Logging
 import kamon.tag.TagSet
 import scodec.bits.ByteVector
@@ -77,7 +78,7 @@ class LocalChannelKeyManager(seed: ByteVector, chainHash: ByteVector32) extends 
   override def newFundingKeyPath(isFunder: Boolean): KeyPath = {
     val last: java.lang.Long = DeterministicWallet.hardened(if (isFunder) 1 else 0)
 
-    def next(): java.lang.Long = secureRandom.nextInt() & 0xFFFFFFFFL
+    def next(): java.lang.Long = randomLong() & 0xFFFFFFFFL
 
     new KeyPath(List(next(), next(), next(), next(), next(), next(), next(), next(), last).asJava)
   }

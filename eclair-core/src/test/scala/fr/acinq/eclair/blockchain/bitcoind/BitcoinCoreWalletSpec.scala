@@ -19,9 +19,8 @@ package fr.acinq.eclair.blockchain.bitcoind
 import akka.actor.Status.Failure
 import akka.pattern.pipe
 import akka.testkit.TestProbe
-import com.typesafe.config.ConfigFactory
 import fr.acinq.bitcoin.PublicKey
-import fr.acinq.bitcoin.{Block, Btc, BtcDouble, ByteVector32, MilliBtc, MilliBtcDouble, OutPoint, Satoshi, SatoshiLong, Script, Transaction, TxIn, TxOut}
+import fr.acinq.bitcoin.{Block, Btc, BtcDouble, ByteVector32, MilliBtc, MilliBtcDouble, OutPoint, Satoshi, SatoshiLong, Script, Transaction}
 import fr.acinq.eclair.blockchain._
 import fr.acinq.eclair.blockchain.bitcoind.BitcoinCoreWallet.WalletTransaction
 import fr.acinq.eclair.blockchain.bitcoind.BitcoindService.BitcoinReq
@@ -71,7 +70,7 @@ class BitcoinCoreWalletSpec extends TestKitBaseClass with BitcoindService with A
 
   test("unlock transaction inputs if publishing fails") {
     val sender = TestProbe()
-    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey.publicKey, randomKey.publicKey)))
+    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey().publicKey, randomKey().publicKey)))
     val wallet = new BitcoinCoreWallet(bitcoinrpcclient)
 
     // create a huge tx so we make sure it has > 1 inputs
@@ -109,7 +108,7 @@ class BitcoinCoreWalletSpec extends TestKitBaseClass with BitcoindService with A
 
   test("unlock outpoints correctly") {
     val sender = TestProbe()
-    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey.publicKey, randomKey.publicKey)))
+    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey().publicKey, randomKey().publicKey)))
     val wallet = new BitcoinCoreWallet(bitcoinrpcclient)
 
     {
@@ -182,7 +181,7 @@ class BitcoinCoreWalletSpec extends TestKitBaseClass with BitcoindService with A
     assert(Try(addressToPublicKeyScript(address, Block.RegtestGenesisBlock.hash)).isSuccess)
 
     val fundingTxs = for (_ <- 0 to 3) yield {
-      val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey.publicKey, randomKey.publicKey)))
+      val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey().publicKey, randomKey().publicKey)))
       wallet.makeFundingTx(pubkeyScript, new Satoshi(500), FeeratePerKw(250 sat)).pipeTo(sender.ref)
       val fundingTx = sender.expectMsgType[MakeFundingTxResponse].fundingTx
       bitcoinClient.publishTransaction(fundingTx.updateInputs(Nil)).pipeTo(sender.ref) // try publishing an invalid version of the tx
@@ -239,7 +238,7 @@ class BitcoinCoreWalletSpec extends TestKitBaseClass with BitcoindService with A
 
     assert(getLocks(sender).isEmpty)
 
-    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey.publicKey, randomKey.publicKey)))
+    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey().publicKey, randomKey().publicKey)))
     wallet.makeFundingTx(pubkeyScript, MilliBtc(50), FeeratePerKw(10000 sat)).pipeTo(sender.ref)
     val error = sender.expectMsgType[Failure].cause.asInstanceOf[JsonRPCError].error
     assert(error.message.contains("Please enter the wallet passphrase with walletpassphrase first"))
@@ -263,7 +262,7 @@ class BitcoinCoreWalletSpec extends TestKitBaseClass with BitcoindService with A
     val wallet = new BitcoinCoreWallet(bitcoinrpcclient)
     val sender = TestProbe()
 
-    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey.publicKey, randomKey.publicKey)))
+    val pubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(randomKey().publicKey, randomKey().publicKey)))
     // 200 sat/kw is below the min-relay-fee
     wallet.makeFundingTx(pubkeyScript, MilliBtc(5), FeeratePerKw(200 sat)).pipeTo(sender.ref)
     val MakeFundingTxResponse(fundingTx, _, _) = sender.expectMsgType[MakeFundingTxResponse]

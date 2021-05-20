@@ -16,13 +16,14 @@
 
 package fr.acinq.eclair.api
 
+import java.util.UUID
+
 import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.model.FormData
 import akka.http.scaladsl.model.StatusCodes._
 import akka.http.scaladsl.model.headers.BasicHttpCredentials
 import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.testkit.{RouteTestTimeout, ScalatestRouteTest, WSProbe}
-import akka.stream.Materializer
 import akka.util.Timeout
 import de.heikoseeberger.akkahttpjson4s.Json4sSupport
 import fr.acinq.bitcoin.PublicKey
@@ -31,7 +32,7 @@ import fr.acinq.eclair.ApiTypes.ChannelIdentifier
 import fr.acinq.eclair.FeatureSupport.{Mandatory, Optional}
 import fr.acinq.eclair.Features.{ChannelRangeQueriesExtended, OptionDataLossProtect}
 import fr.acinq.eclair._
-import fr.acinq.eclair.api.directives.ErrorResponse
+import fr.acinq.eclair.api.directives.{EclairDirectives, ErrorResponse}
 import fr.acinq.eclair.api.serde.JsonSupport
 import fr.acinq.eclair.blockchain.fee.FeeratePerKw
 import fr.acinq.eclair.channel.ChannelOpenResponse.ChannelOpened
@@ -52,7 +53,6 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import scodec.bits._
 
-import java.util.UUID
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.io.Source
@@ -68,13 +68,29 @@ class ApiServiceSpec extends AnyFunSuite with ScalatestRouteTest with IdiomaticM
   val aliceNodeId = PublicKey.fromHex("03af0ed6052cf28d670665549bc86f4b721c9fdb309d40c58f5811f63966e005d0")
   val bobNodeId = PublicKey.fromHex("039dc0e0b1d25905e44fdf6f8e89755a5e219685840d0bc1d28d3308f9628a3585")
 
+  object PluginApi extends RouteProvider {
+    override def route(directives: EclairDirectives): Route = {
+      import directives._
+      val route1 = postRequest("plugin-test") { implicit t =>
+        complete("fine")
+      }
+
+      val route2 = postRequest("payinvoice") { implicit t =>
+        complete("gets overridden by base API endpoint")
+      }
+
+      route1 ~ route2
+    }
+  }
+
   class MockService(eclair: Eclair) extends Service {
     override val eclairApi: Eclair = eclair
 
     override def password: String = "mock"
 
     override implicit val actorSystem: ActorSystem = system
-    override implicit val mat: Materializer = materializer
+
+    val route: Route = finalRoutes(Seq(PluginApi.route(this)))
   }
 
   def mockApi(eclair: Eclair = mock[Eclair]): MockService = {
@@ -167,6 +183,17 @@ class ApiServiceSpec extends AnyFunSuite with ScalatestRouteTest with IdiomaticM
         val response = entityAs[String]
         eclair.peers()(any[Timeout]).wasCalled(once)
         matchTestJson("peers", response)
+      }
+  }
+
+  test("plugin injects its own route") {
+    Post("/plugin-test") ~>
+      addCredentials(BasicHttpCredentials("", mockApi().password)) ~>
+      Route.seal(mockApi().route) ~>
+      check {
+        assert(handled)
+        assert(status == OK)
+        assert(entityAs[String] == "fine")
       }
   }
 
@@ -444,13 +471,13 @@ class ApiServiceSpec extends AnyFunSuite with ScalatestRouteTest with IdiomaticM
     val invoice = "lnbc2500u1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsxqzpuaztrnwngzn3kdzw5hydlzf03qdgm2hdq27cqv3agm2awhz5se903vruatfhq77w3ls4evs3ch9zw97j25emudupq63nyw24cg27h2rspfj9srp"
     val defaultPayment = IncomingPayment(PaymentRequest.read(invoice), ByteVector32.One, PaymentType.Standard, 42, IncomingPaymentStatus.Pending)
     val eclair = mock[Eclair]
-    val notFound = randomBytes32
+    val notFound = randomBytes32()
     eclair.receivedInfo(notFound)(any) returns Future.successful(None)
-    val pending = randomBytes32
+    val pending = randomBytes32()
     eclair.receivedInfo(pending)(any) returns Future.successful(Some(defaultPayment))
-    val expired = randomBytes32
+    val expired = randomBytes32()
     eclair.receivedInfo(expired)(any) returns Future.successful(Some(defaultPayment.copy(status = IncomingPaymentStatus.Expired)))
-    val received = randomBytes32
+    val received = randomBytes32()
     eclair.receivedInfo(received)(any) returns Future.successful(Some(defaultPayment.copy(status = IncomingPaymentStatus.Received(42 msat, 45))))
     val mockService = new MockService(eclair)
 
@@ -548,7 +575,7 @@ class ApiServiceSpec extends AnyFunSuite with ScalatestRouteTest with IdiomaticM
     val payment = SendPaymentToRouteResponse(UUID.fromString("487da196-a4dc-4b1e-92b4-3e5e905e9f3f"), UUID.fromString("2ad8c6d7-99cb-4238-8f67-89024b8eed0d"), None)
     val expected = """{"paymentId":"487da196-a4dc-4b1e-92b4-3e5e905e9f3f","parentId":"2ad8c6d7-99cb-4238-8f67-89024b8eed0d"}"""
     val externalId = UUID.randomUUID().toString
-    val pr = PaymentRequest(Block.LivenetGenesisBlock.hash, Some(1234 msat), ByteVector32.Zeroes, randomKey, "Some invoice", CltvExpiryDelta(24))
+    val pr = PaymentRequest(Block.LivenetGenesisBlock.hash, Some(1234 msat), ByteVector32.Zeroes, randomKey(), "Some invoice", CltvExpiryDelta(24))
     val expectedRoute = PredefinedNodeRoute(Seq(PublicKey.fromHex("0217eb8243c95f5a3b7d4c5682d10de354b7007eb59b6807ae407823963c7547a9"), PublicKey.fromHex("0242a4ae0c5bef18048fbecf995094b74bfb0f7391418d71ed394784373f41e4f3"), PublicKey.fromHex("026ac9fcd64fb1aa1c491fc490634dc33da41d4a17b554e0adf1b32fee88ee9f28")))
     val csvNodes = "0217eb8243c95f5a3b7d4c5682d10de354b7007eb59b6807ae407823963c7547a9, 0242a4ae0c5bef18048fbecf995094b74bfb0f7391418d71ed394784373f41e4f3, 026ac9fcd64fb1aa1c491fc490634dc33da41d4a17b554e0adf1b32fee88ee9f28"
     val jsonNodes = serialization.write(expectedRoute.nodes)

@@ -31,7 +31,6 @@ import grizzled.slf4j.Logging
 import java.sql.{Statement, Timestamp}
 import java.time.Instant
 import javax.sql.DataSource
-import scala.collection.immutable.Queue
 
 class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb with Logging {
 
@@ -126,7 +125,7 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
 
   override def removeChannel(channelId: ByteVector32): Unit = withMetrics("channels/remove-channel", DbBackends.Postgres) {
     withLock { pg =>
-      using(pg.prepareStatement("DELETE FROM pending_relay WHERE channel_id=?")) { statement =>
+      using(pg.prepareStatement("DELETE FROM pending_settlement_commands WHERE channel_id=?")) { statement =>
         statement.setString(1, channelId.toHex)
         statement.executeUpdate()
       }
@@ -146,8 +145,8 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
   override def listLocalChannels(): Seq[HasCommitments] = withMetrics("channels/list-local-channels", DbBackends.Postgres) {
     withLock { pg =>
       using(pg.createStatement) { statement =>
-        val rs = statement.executeQuery("SELECT data FROM local_channels WHERE is_closed=FALSE")
-        codecSequence(rs, stateDataCodec)
+        statement.executeQuery("SELECT data FROM local_channels WHERE is_closed=FALSE")
+          .mapCodec(stateDataCodec).toSeq
       }
     }
   }
@@ -169,12 +168,10 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
       using(pg.prepareStatement("SELECT payment_hash, cltv_expiry FROM htlc_infos WHERE channel_id=? AND commitment_number=?")) { statement =>
         statement.setString(1, channelId.toHex)
         statement.setLong(2, commitmentNumber)
-        val rs = statement.executeQuery
-        var q: Queue[(ByteVector32, CltvExpiry)] = Queue()
-        while (rs.next()) {
-          q = q :+ (new ByteVector32(rs.getByteVector32FromHex("payment_hash")), CltvExpiry(rs.getLong("cltv_expiry")))
-        }
-        q
+        statement.executeQuery
+          .map { rs =>
+            (new ByteVector32(rs.getString("payment_hash")), CltvExpiry(rs.getLong("cltv_expiry")))
+          }.toSeq
       }
     }
   }

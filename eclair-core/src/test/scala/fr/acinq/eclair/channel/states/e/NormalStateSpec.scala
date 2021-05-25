@@ -23,9 +23,9 @@ import fr.acinq.eclair.Features.StaticRemoteKey
 import fr.acinq.eclair.TestConstants.{Alice, Bob}
 import fr.acinq.eclair.UInt64.Conversions._
 import fr.acinq.eclair._
-import fr.acinq.eclair.blockchain.{CurrentBlockCount, CurrentFeerates}
 import fr.acinq.eclair.blockchain.bitcoind.ZmqWatcher._
 import fr.acinq.eclair.blockchain.fee.{FeeratePerByte, FeeratePerKw, FeeratesPerKw}
+import fr.acinq.eclair.blockchain.{CurrentBlockCount, CurrentFeerates}
 import fr.acinq.eclair.channel.Channel._
 import fr.acinq.eclair.channel.TxPublisher.{PublishRawTx, PublishTx}
 import fr.acinq.eclair.channel._
@@ -38,7 +38,7 @@ import fr.acinq.eclair.router.Announcements
 import fr.acinq.eclair.transactions.DirectedHtlc.{incoming, outgoing}
 import fr.acinq.eclair.transactions.Transactions
 import fr.acinq.eclair.transactions.Transactions.{DefaultCommitmentFormat, HtlcSuccessTx, weight2fee}
-import fr.acinq.eclair.wire.protocol.{AnnouncementSignatures, ChannelUpdate, ClosingSigned, CommitSig, Error, FailureMessageCodecs, PermanentChannelFailure, RevokeAndAck, Shutdown, UpdateAddHtlc, UpdateFailHtlc, UpdateFailMalformedHtlc, UpdateFee, UpdateFulfillHtlc}
+import fr.acinq.eclair.wire.protocol.{AnnouncementSignatures, ChannelUpdate, ClosingSigned, CommitSig, Error, FailureMessageCodecs, PermanentChannelFailure, RevokeAndAck, Shutdown, TemporaryNodeFailure, UpdateAddHtlc, UpdateFailHtlc, UpdateFailMalformedHtlc, UpdateFee, UpdateFulfillHtlc}
 import KotlinUtils._
 import org.scalatest.funsuite.FixtureAnyFunSuiteLike
 import org.scalatest.{Outcome, Tag}
@@ -1225,12 +1225,12 @@ class NormalStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with 
     val initialState = bob.stateData.asInstanceOf[DATA_NORMAL]
     val c = CMD_FULFILL_HTLC(htlc.id, r, replyTo_opt = Some(sender.ref))
     // this would be done automatically when the relayer calls safeSend
-    bob.underlyingActor.nodeParams.db.pendingRelay.addPendingRelay(initialState.channelId, c)
+    bob.underlyingActor.nodeParams.db.pendingCommands.addSettlementCommand(initialState.channelId, c)
     bob ! c
     bob2alice.expectMsgType[UpdateFulfillHtlc]
     bob ! CMD_SIGN(replyTo_opt = Some(sender.ref))
     bob2alice.expectMsgType[CommitSig]
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   test("recv CMD_FULFILL_HTLC (acknowledge in case of failure)") { f =>
@@ -1241,7 +1241,7 @@ class NormalStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with 
     val c = CMD_FULFILL_HTLC(42, randomBytes32(), replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   private def testUpdateFulfillHtlc(f: FixtureParam): Unit = {
@@ -1364,6 +1364,25 @@ class NormalStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with 
     assert(initialState == bob.stateData)
   }
 
+  test("recv CMD_FAIL_HTLC (htlc pending fulfill)") { f =>
+    import f._
+
+    val sender = TestProbe()
+    val (r, htlc) = addHtlc(50000000 msat, alice, bob, alice2bob, bob2alice)
+    crossSign(alice, bob, alice2bob, bob2alice)
+
+    // HTLC is fulfilled but alice doesn't send its revocation.
+    bob ! CMD_FULFILL_HTLC(htlc.id, r)
+    bob ! CMD_SIGN()
+    bob2alice.expectMsgType[UpdateFulfillHtlc]
+    bob2alice.expectMsgType[CommitSig]
+
+    // We cannot fail the HTLC, we must wait for the fulfill to be acked.
+    val c = CMD_FAIL_HTLC(htlc.id, Right(TemporaryNodeFailure), replyTo_opt = Some(sender.ref))
+    bob ! c
+    sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), htlc.id)))
+  }
+
   test("recv CMD_FAIL_HTLC (acknowledge in case of failure)") { f =>
     import f._
     val sender = TestProbe()
@@ -1372,7 +1391,7 @@ class NormalStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with 
     val c = CMD_FAIL_HTLC(42, Right(PermanentChannelFailure), replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   test("recv CMD_FAIL_MALFORMED_HTLC") { f =>
@@ -1418,7 +1437,7 @@ class NormalStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with 
     val c = CMD_FAIL_MALFORMED_HTLC(42, ByteVector32.Zeroes, FailureMessageCodecs.BADONION, replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   private def testUpdateFailHtlc(f: FixtureParam): Unit = {

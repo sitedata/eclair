@@ -35,7 +35,7 @@ import fr.acinq.eclair.channel.TxPublisher.{PublishRawTx, PublishTx, SetChannelI
 import fr.acinq.eclair.crypto.ShaChain
 import fr.acinq.eclair.crypto.keymanager.ChannelKeyManager
 import fr.acinq.eclair.db.DbEventHandler.ChannelEvent.EventType
-import fr.acinq.eclair.db.PendingRelayDb
+import fr.acinq.eclair.db.PendingCommandsDb
 import fr.acinq.eclair.db.pg.PgUtils.PgLock.logger
 import fr.acinq.eclair.io.Peer
 import fr.acinq.eclair.payment.PaymentSettlingOnChain
@@ -1444,7 +1444,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
       // finally, if one of the unilateral closes is done, we move to CLOSED state, otherwise we stay (note that we don't store the state)
       closingType_opt match {
         case Some(closingType) =>
-          log.info(s"channel closed (type=$closingType)")
+          log.info(s"channel closed (type=${closingType_opt.map(c => EventType.Closed(c).label).getOrElse("UnknownYet")})")
           context.system.eventStream.publish(ChannelClosed(self, d.channelId, closingType, d.commitments))
           goto(CLOSED) using d1 storing()
         case None =>
@@ -1702,6 +1702,14 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
       peer ! Peer.Disconnect(remoteNodeId)
       stay
 
+    // This handler is a workaround for an issue in lnd similar to the one above: they sometimes send announcement_signatures
+    // before channel_reestablish, which is a minor spec violation. It doesn't halt the channel, we can simply postpone
+    // that message.
+    case Event(remoteAnnSigs: AnnouncementSignatures, _) =>
+      log.warning("received announcement_signatures before channel_reestablish (known lnd bug): delaying...")
+      context.system.scheduler.scheduleOnce(5 seconds, self, remoteAnnSigs)
+      stay
+
     case Event(c: CurrentBlockCount, d: HasCommitments) => handleNewBlock(c, d)
 
     case Event(c: CurrentFeerates, d: HasCommitments) =>
@@ -1876,7 +1884,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
 
   onTransition {
     case _ -> CLOSING =>
-      PendingRelayDb.getPendingFailsAndFulfills(nodeParams.db.pendingRelay, nextStateData.asInstanceOf[HasCommitments].channelId) match {
+      PendingCommandsDb.getSettlementCommands(nodeParams.db.pendingCommands, nextStateData.asInstanceOf[HasCommitments].channelId) match {
         case Nil =>
           log.debug("nothing to replay")
         case cmds =>
@@ -1884,7 +1892,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
           cmds.foreach(self ! _) // they all have commit = false
       }
     case SYNCING -> (NORMAL | SHUTDOWN) =>
-      PendingRelayDb.getPendingFailsAndFulfills(nodeParams.db.pendingRelay, nextStateData.asInstanceOf[HasCommitments].channelId) match {
+      PendingCommandsDb.getSettlementCommands(nodeParams.db.pendingCommands, nextStateData.asInstanceOf[HasCommitments].channelId) match {
         case Nil =>
           log.debug("nothing to replay")
         case cmds =>
@@ -2110,7 +2118,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
       } else {
         // There might be pending fulfill commands that we haven't relayed yet.
         // Since this involves a DB call, we only want to check it if all the previous checks failed (this is the slow path).
-        val pendingRelayFulfills = nodeParams.db.pendingRelay.listPendingRelay(d.channelId).collect { case c: CMD_FULFILL_HTLC => c.id }
+        val pendingRelayFulfills = nodeParams.db.pendingCommands.listSettlementCommands(d.channelId).collect { case c: CMD_FULFILL_HTLC => c.id }
         val offendingPendingRelayFulfills = almostTimedOutIncoming.filter(htlc => pendingRelayFulfills.contains(htlc.id))
         if (offendingPendingRelayFulfills.nonEmpty) {
           handleLocalError(HtlcsWillTimeoutUpstream(d.channelId, offendingPendingRelayFulfills), d, Some(c))
@@ -2126,11 +2134,12 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
   private def handleLocalError(cause: Throwable, d: Data, msg: Option[Any]) = {
     cause match {
       case _: ForcedLocalCommit => log.warning(s"force-closing channel at user request")
+      case _ if stateName == WAIT_FOR_OPEN_CHANNEL => log.warning(s"${cause.getMessage} while processing msg=${msg.getOrElse("n/a").getClass.getSimpleName} in state=$stateName")
       case _ => log.error(s"${cause.getMessage} while processing msg=${msg.getOrElse("n/a").getClass.getSimpleName} in state=$stateName")
     }
     cause match {
       case _: ChannelException => ()
-      case _ => log.error(cause, s"msg=${msg.getOrElse("n/a")} stateData=$stateData ")
+      case _ => log.error(cause, s"msg=${msg.getOrElse("n/a")} stateData=$stateData")
     }
     val error = Error(d.channelId, cause.getMessage)
     context.system.eventStream.publish(ChannelErrorOccurred(self, stateData.channelId, remoteNodeId, stateData, LocalError(cause), isFatal = true))
@@ -2521,13 +2530,13 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
      */
     def acking(channelId: ByteVector32, cmd: HtlcSettlementCommand): FSM.State[fr.acinq.eclair.channel.State, Data] = {
       log.debug("scheduling acknowledgement of cmd id={}", cmd.id)
-      context.system.scheduler.scheduleOnce(10 seconds)(PendingRelayDb.ackCommand(nodeParams.db.pendingRelay, channelId, cmd))(context.system.dispatcher)
+      context.system.scheduler.scheduleOnce(10 seconds)(PendingCommandsDb.ackSettlementCommand(nodeParams.db.pendingCommands, channelId, cmd))(context.system.dispatcher)
       state
     }
 
     def acking(updates: List[UpdateMessage]): FSM.State[fr.acinq.eclair.channel.State, Data] = {
       log.debug("scheduling acknowledgement of cmds ids={}", updates.collect { case s: HtlcSettlementMessage => s.id }.mkString(","))
-      context.system.scheduler.scheduleOnce(10 seconds)(PendingRelayDb.ackPendingFailsAndFulfills(nodeParams.db.pendingRelay, updates))(context.system.dispatcher)
+      context.system.scheduler.scheduleOnce(10 seconds)(PendingCommandsDb.ackSettlementCommands(nodeParams.db.pendingCommands, updates))(context.system.dispatcher)
       state
     }
 

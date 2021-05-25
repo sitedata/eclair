@@ -70,8 +70,14 @@ class PostRestartHtlcCleaner(nodeParams: NodeParams, register: ActorRef, initial
     val nonStandardRelayedOutHtlcs: Map[Origin, Set[(ByteVector32, Long)]] = nodeParams.pluginParams.collect { case p: CustomCommitmentsPlugin => p.getHtlcsRelayedOut(htlcsIn, nodeParams, log) }.flatten.toMap
     val relayedOut: Map[Origin, Set[(ByteVector32, Long)]] = getHtlcsRelayedOut(channels, htlcsIn) ++ nonStandardRelayedOutHtlcs
 
-    val notRelayed = htlcsIn.filterNot(htlcIn => relayedOut.keys.exists(origin => matchesOrigin(htlcIn.add, origin)))
-    cleanupRelayDb(htlcsIn, nodeParams.db.pendingRelay)
+    val settledHtlcs: Set[(ByteVector32, Long)] = nodeParams.db.pendingCommands.listSettlementCommands().map { case (channelId, cmd) => (channelId, cmd.id) }.toSet
+    val notRelayed = htlcsIn.filterNot(htlcIn => {
+      // If an HTLC has been relayed and then settled downstream, it will not have a matching entry in relayedOut.
+      // When that happens, there will be an HTLC settlement command in the pendingRelay DB, and we will let the channel
+      // replay it instead of sending a conflicting command.
+      relayedOut.keys.exists(origin => matchesOrigin(htlcIn.add, origin)) || settledHtlcs.contains((htlcIn.add.channelId, htlcIn.add.id))
+    })
+    cleanupRelayDb(htlcsIn, nodeParams.db.pendingCommands)
 
     log.info(s"htlcsIn=${htlcsIn.length} notRelayed=${notRelayed.length} relayedOut=${relayedOut.values.flatten.size}")
     log.info("notRelayed={}", notRelayed.map(htlc => (htlc.add.channelId, htlc.add.id)))
@@ -170,7 +176,7 @@ class PostRestartHtlcCleaner(nodeParams: NodeParams, register: ActorRef, initial
           if (relayedOut != Set((fulfilledHtlc.channelId, fulfilledHtlc.id))) {
             log.error(s"unexpected channel relay downstream HTLCs: expected (${fulfilledHtlc.channelId},${fulfilledHtlc.id}), found $relayedOut")
           }
-          PendingRelayDb.safeSend(register, nodeParams.db.pendingRelay, originChannelId, CMD_FULFILL_HTLC(originHtlcId, paymentPreimage, commit = true))
+          PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, originChannelId, CMD_FULFILL_HTLC(originHtlcId, paymentPreimage, commit = true))
           context.system.eventStream.publish(ChannelPaymentRelayed(amountIn, amountOut, fulfilledHtlc.paymentHash, originChannelId, fulfilledHtlc.channelId))
           Metrics.PendingRelayedOut.decrement()
           context become main(brokenHtlcs.copy(relayedOut = brokenHtlcs.relayedOut - origin))
@@ -181,7 +187,7 @@ class PostRestartHtlcCleaner(nodeParams: NodeParams, register: ActorRef, initial
             log.info(s"received preimage for paymentHash=${fulfilledHtlc.paymentHash}: fulfilling ${origins.length} HTLCs upstream")
             origins.foreach { case (channelId, htlcId) =>
               Metrics.Resolved.withTag(Tags.Success, value = true).withTag(Metrics.Relayed, value = true).increment()
-              PendingRelayDb.safeSend(register, nodeParams.db.pendingRelay, channelId, CMD_FULFILL_HTLC(htlcId, paymentPreimage, commit = true))
+              PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, channelId, CMD_FULFILL_HTLC(htlcId, paymentPreimage, commit = true))
             }
           }
           val relayedOut1 = relayedOut diff Set((fulfilledHtlc.channelId, fulfilledHtlc.id))
@@ -225,14 +231,14 @@ class PostRestartHtlcCleaner(nodeParams: NodeParams, register: ActorRef, initial
                 log.warning(s"payment failed for paymentHash=${failedHtlc.paymentHash}: failing 1 HTLC upstream")
                 Metrics.Resolved.withTag(Tags.Success, value = false).withTag(Metrics.Relayed, value = true).increment()
                 val cmd = ChannelRelay.translateRelayFailure(originHtlcId, fail)
-                PendingRelayDb.safeSend(register, nodeParams.db.pendingRelay, originChannelId, cmd)
+                PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, originChannelId, cmd)
               case Origin.TrampolineRelayedCold(origins) =>
                 log.warning(s"payment failed for paymentHash=${failedHtlc.paymentHash}: failing ${origins.length} HTLCs upstream")
                 origins.foreach { case (channelId, htlcId) =>
                   Metrics.Resolved.withTag(Tags.Success, value = false).withTag(Metrics.Relayed, value = true).increment()
                   // We don't bother decrypting the downstream failure to forward a more meaningful error upstream, it's
                   // very likely that it won't be actionable anyway because of our node restart.
-                  PendingRelayDb.safeSend(register, nodeParams.db.pendingRelay, channelId, CMD_FAIL_HTLC(htlcId, Right(TemporaryNodeFailure), commit = true))
+                  PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, channelId, CMD_FAIL_HTLC(htlcId, Right(TemporaryNodeFailure), commit = true))
                 }
             }
           }
@@ -332,6 +338,7 @@ object PostRestartHtlcCleaner {
   def groupByOrigin(htlcsOut: Seq[(Origin, ByteVector32, Long)], htlcsIn: Seq[IncomingHtlc]): Map[Origin, Set[(ByteVector32, Long)]] =
     htlcsOut
       .groupBy { case (origin, _, _) => origin }
+      .view
       .mapValues(_.map { case (_, channelId, htlcId) => (channelId, htlcId) }.toSet)
       // We are only interested in HTLCs that are pending upstream (not fulfilled nor failed yet).
       // It may be the case that we have unresolved HTLCs downstream that have been resolved upstream when the downstream
@@ -390,7 +397,7 @@ object PostRestartHtlcCleaner {
 
   /**
    * We store [[CMD_FULFILL_HTLC]]/[[CMD_FAIL_HTLC]]/[[CMD_FAIL_MALFORMED_HTLC]] in a database
-   * (see [[fr.acinq.eclair.db.PendingRelayDb]]) because we don't want to lose preimages, or to forget to fail
+   * (see [[fr.acinq.eclair.db.PendingCommandsDb]]) because we don't want to lose preimages, or to forget to fail
    * incoming htlcs, which would lead to unwanted channel closings.
    *
    * Because of the way our watcher works, in a scenario where a downstream channel has gone to the blockchain, it may
@@ -398,17 +405,17 @@ object PostRestartHtlcCleaner {
    *
    * That's why we need to periodically clean up the pending relay db.
    */
-  private def cleanupRelayDb(htlcsIn: Seq[IncomingHtlc], relayDb: PendingRelayDb)(implicit log: LoggingAdapter): Unit = {
+  private def cleanupRelayDb(htlcsIn: Seq[IncomingHtlc], relayDb: PendingCommandsDb)(implicit log: LoggingAdapter): Unit = {
     // We are interested in incoming HTLCs, that have been *cross-signed* (otherwise they wouldn't have been relayed).
     // If the HTLC is not in their commitment, it means that we have already fulfilled/failed it and that we can remove
     // the command from the pending relay db.
     val channel2Htlc: Seq[(ByteVector32, Long)] = htlcsIn.map { case IncomingHtlc(add, _) => (add.channelId, add.id) }
-    val pendingRelay: Set[(ByteVector32, Long)] = relayDb.listPendingRelay()
+    val pendingRelay: Set[(ByteVector32, Long)] = relayDb.listSettlementCommands().map { case (channelId, cmd) => (channelId, cmd.id) }.toSet
     val toClean = pendingRelay -- channel2Htlc
     toClean.foreach {
       case (channelId, htlcId) =>
         log.info(s"cleaning up channelId=$channelId htlcId=$htlcId from relay db")
-        relayDb.removePendingRelay(channelId, htlcId)
+        relayDb.removeSettlementCommand(channelId, htlcId)
     }
   }
 

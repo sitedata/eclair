@@ -154,12 +154,12 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     val initialState = bob.stateData.asInstanceOf[DATA_SHUTDOWN]
     val c = CMD_FULFILL_HTLC(0, r1, replyTo_opt = Some(sender.ref))
     // this would be done automatically when the relayer calls safeSend
-    bob.underlyingActor.nodeParams.db.pendingRelay.addPendingRelay(initialState.channelId, c)
+    bob.underlyingActor.nodeParams.db.pendingCommands.addSettlementCommand(initialState.channelId, c)
     bob ! c
     bob2alice.expectMsgType[UpdateFulfillHtlc]
     bob ! CMD_SIGN(replyTo_opt = Some(sender.ref))
     bob2alice.expectMsgType[CommitSig]
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   test("recv CMD_FULFILL_HTLC (acknowledge in case of failure)") { f =>
@@ -170,7 +170,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     val c = CMD_FULFILL_HTLC(42, randomBytes32(), replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   test("recv UpdateFulfillHtlc") { f =>
@@ -235,7 +235,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     val c = CMD_FAIL_HTLC(42, Right(PermanentChannelFailure), replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   test("recv CMD_FAIL_MALFORMED_HTLC") { f =>
@@ -275,7 +275,7 @@ class ShutdownStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike wit
     val c = CMD_FAIL_MALFORMED_HTLC(42, randomBytes32(), FailureMessageCodecs.BADONION, replyTo_opt = Some(sender.ref))
     sender.send(bob, c) // this will fail
     sender.expectMsg(RES_FAILURE(c, UnknownHtlcId(channelId(bob), 42)))
-    awaitCond(bob.underlyingActor.nodeParams.db.pendingRelay.listPendingRelay(initialState.channelId).isEmpty)
+    awaitCond(bob.underlyingActor.nodeParams.db.pendingCommands.listSettlementCommands(initialState.channelId).isEmpty)
   }
 
   test("recv UpdateFailHtlc") { f =>

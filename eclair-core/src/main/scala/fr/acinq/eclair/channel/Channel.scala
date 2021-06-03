@@ -148,6 +148,17 @@ object Channel {
   }
   // @formatter:on
 
+  // @formatter:off
+  /** What do we do if we have a local unhandled exception. */
+  sealed trait UnhandledExceptionStrategy
+  object UnhandledExceptionStrategy {
+    /** Ask our counterparty to close the channel. This may be the best choice for smaller loosely administered nodes.*/
+    case object LocalForceClose extends UnhandledExceptionStrategy
+    /** Just log an error and stop the node. May be better for larger nodes, to prevent unwanted mass force-close.*/
+    case object LogAndStop extends UnhandledExceptionStrategy
+  }
+  // @formatter:on
+
 }
 
 class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId: PublicKey, blockchain: typed.ActorRef[ZmqWatcher.Command], relayer: ActorRef, txPublisherFactory: Channel.TxPublisherFactory, origin_opt: Option[ActorRef] = None)(implicit ec: ExecutionContext = ExecutionContext.Implicits.global) extends FSM[State, Data] with FSMDiagnosticActorLogging[State, Data] {
@@ -2159,14 +2170,15 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
 
   private def handleLocalError(cause: Throwable, d: Data, msg: Option[Any]) = {
     cause match {
-      case _: ForcedLocalCommit => log.warning(s"force-closing channel at user request")
-      case _ if stateName == WAIT_FOR_OPEN_CHANNEL => log.warning(s"${cause.getMessage} while processing msg=${msg.getOrElse("n/a").getClass.getSimpleName} in state=$stateName")
-      case _ => log.error(s"${cause.getMessage} while processing msg=${msg.getOrElse("n/a").getClass.getSimpleName} in state=$stateName")
+      case _: ForcedLocalCommit =>
+        log.warning(s"force-closing channel at user request")
+      case _: ChannelException =>
+        log.error(s"${cause.getMessage} while processing msg=${msg.getOrElse("n/a").getClass.getSimpleName} in state=$stateName")
+      case _ =>
+        // unhandled error: we dump the channel data, and print the stack trace
+        log.error(cause, s"msg=${msg.getOrElse("n/a")} stateData=$stateData:")
     }
-    cause match {
-      case _: ChannelException => ()
-      case _ => log.error(cause, s"msg=${msg.getOrElse("n/a")} stateData=$stateData")
-    }
+
     val error = Error(d.channelId, cause.getMessage)
     context.system.eventStream.publish(ChannelErrorOccurred(self, stateData.channelId, remoteNodeId, stateData, LocalError(cause), isFatal = true))
 
@@ -2176,7 +2188,22 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
         log.info(s"we have a valid closing tx, publishing it instead of our commitment: closingTxId=${bestUnpublishedClosingTx.tx.txid}")
         // if we were in the process of closing and already received a closing sig from the counterparty, it's always better to use that
         handleMutualClose(bestUnpublishedClosingTx, Left(negotiating))
-      case dd: HasCommitments => spendLocalCurrent(dd) sending error // otherwise we use our current commitment
+      case dd: HasCommitments =>
+        cause match {
+          case _: ChannelException =>
+            // known channel exception: we force close using our current commitment
+            spendLocalCurrent(dd) sending error
+          case _ =>
+            // unhandled exception: we apply the configured strategy
+            nodeParams.unhandledExceptionStrategy match {
+              case UnhandledExceptionStrategy.LocalForceClose =>
+                spendLocalCurrent(dd) sending error
+              case UnhandledExceptionStrategy.LogAndStop =>
+                log.error("stopping the node (unhandled exception")
+                System.exit(1)
+                stop(FSM.Shutdown)
+            }
+        }
       case _ => goto(CLOSED) sending error // when there is no commitment yet, we just send an error to our peer and go to CLOSED state
     }
   }
@@ -2416,7 +2443,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
 
     goto(ERR_INFORMATION_LEAK) calling doPublish(localCommitPublished, d.commitments) sending error
   }
-  
+
   private def handleOutdatedCommitment(channelReestablish: ChannelReestablish, d: HasCommitments) = {
     nodeParams.outdatedCommitmentStrategy match {
       case OutdatedCommitmentStrategy.HaltIfJustRestarted if ManagementFactory.getRuntimeMXBean.getUptime.millis < 10.minutes =>

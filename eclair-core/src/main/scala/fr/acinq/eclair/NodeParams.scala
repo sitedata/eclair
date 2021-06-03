@@ -22,7 +22,7 @@ import fr.acinq.bitcoin.{Block, ByteVector32, Crypto, Satoshi}
 import fr.acinq.eclair.Setup.Seeds
 import fr.acinq.eclair.blockchain.fee._
 import fr.acinq.eclair.channel.Channel
-import fr.acinq.eclair.channel.Channel.OutdatedCommitmentStrategy
+import fr.acinq.eclair.channel.Channel.{OutdatedCommitmentStrategy, UnhandledExceptionStrategy}
 import fr.acinq.eclair.crypto.Noise.KeyPair
 import fr.acinq.eclair.crypto.keymanager.{ChannelKeyManager, NodeKeyManager}
 import fr.acinq.eclair.db._
@@ -74,6 +74,7 @@ case class NodeParams(nodeKeyManager: NodeKeyManager,
                       reserveToFundingRatio: Double,
                       maxReserveToFundingRatio: Double,
                       outdatedCommitmentStrategy: OutdatedCommitmentStrategy,
+                      unhandledExceptionStrategy: UnhandledExceptionStrategy,
                       db: Databases,
                       revocationTimeout: FiniteDuration,
                       autoReconnect: Boolean,
@@ -301,6 +302,11 @@ object NodeParams extends Logging {
       case "always-request-remote-close" => OutdatedCommitmentStrategy.AlwaysRequestRemoteClose
     }
 
+    val unhandledExceptionStrategy = config.getString("unhandled-exception-strategy") match {
+        case "local-force-close" => UnhandledExceptionStrategy.LocalForceClose
+        case "log-and-stop" => UnhandledExceptionStrategy.LogAndStop
+      }
+
     val routerSyncEncodingType = config.getString("router.sync.encoding-type") match {
       case "uncompressed" => EncodingType.UNCOMPRESSED
       case "zlib" => EncodingType.COMPRESSED_ZLIB
@@ -355,6 +361,7 @@ object NodeParams extends Logging {
       reserveToFundingRatio = config.getDouble("reserve-to-funding-ratio"),
       maxReserveToFundingRatio = config.getDouble("max-reserve-to-funding-ratio"),
       outdatedCommitmentStrategy = outdatedCommitmentStrategy,
+      unhandledExceptionStrategy = unhandledExceptionStrategy,
       db = database,
       revocationTimeout = FiniteDuration(config.getDuration("revocation-timeout").getSeconds, TimeUnit.SECONDS),
       autoReconnect = config.getBoolean("auto-reconnect"),

@@ -17,7 +17,6 @@
 package fr.acinq.eclair.channel.states.e
 
 import java.util.UUID
-
 import akka.actor.Status
 import akka.actor.Status.Failure
 import akka.testkit.TestProbe
@@ -40,7 +39,7 @@ import fr.acinq.eclair.router.Announcements
 import fr.acinq.eclair.transactions.DirectedHtlc.{incoming, outgoing}
 import fr.acinq.eclair.transactions.Transactions
 import fr.acinq.eclair.transactions.Transactions.{HtlcSuccessTx, htlcSuccessWeight, htlcTimeoutWeight, weight2fee}
-import fr.acinq.eclair.wire.{AnnouncementSignatures, ChannelUpdate, ClosingSigned, CommitSig, Error, FailureMessageCodecs, PermanentChannelFailure, RevokeAndAck, Shutdown, UpdateAddHtlc, UpdateFailHtlc, UpdateFailMalformedHtlc, UpdateFee, UpdateFulfillHtlc}
+import fr.acinq.eclair.wire.{AnnouncementSignatures, ChannelUpdate, ClosingSigned, CommitSig, Error, FailureMessageCodecs, LightningMessageCodecs, PermanentChannelFailure, RevokeAndAck, Shutdown, UpdateAddHtlc, UpdateFailHtlc, UpdateFailMalformedHtlc, UpdateFee, UpdateFulfillHtlc}
 import org.scalatest.funsuite.FixtureAnyFunSuiteLike
 import org.scalatest.{Outcome, Tag}
 import scodec.bits._
@@ -1025,6 +1024,46 @@ class NormalStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with 
     bob2blockchain.expectMsg(PublishAsap(tx))
     bob2blockchain.expectMsgType[PublishAsap]
     bob2blockchain.expectMsgType[WatchConfirmed]
+  }
+
+  test("recv CommitSig (maximum number of outgoing htlcs)", Tag("zero_reserve"), Tag("no_max_htlc_value_inflight")) { f =>
+    import f._
+    val sender = TestProbe()
+
+    for (i <- 0 until 10) {
+      addHtlc(9000000 msat, bob, alice, bob2alice, alice2bob)
+    }
+
+    sender.send(bob, CMD_SIGN)
+    sender.expectMsg(ChannelCommandResponse.Ok)
+
+    val commitSig = bob2alice.expectMsgType[CommitSig]
+    assert(commitSig.htlcSignatures.size == 10)
+    val bin = LightningMessageCodecs.lightningMessageCodec.encode(commitSig).require.bytes
+    // if the encrypted peer backup is > 60Kb it is not serialized and we end up with a small LN message, which is exactly what we don't want
+    assert(bin.size > 5000)
+  }
+
+  test("recv CommitSig (maximum number of incoming htlcs)", Tag("zero_reserve"), Tag("no_max_htlc_value_inflight")) { f =>
+    import f._
+    val sender = TestProbe()
+
+    for (i <- 0 until 10) {
+      addHtlc(9000000 msat, alice, bob, alice2bob, bob2alice)
+    }
+    sender.send(alice, CMD_SIGN)
+    alice2bob.expectMsgType[CommitSig]
+    alice2bob.forward(bob)
+    bob2alice.expectMsgType[RevokeAndAck]
+    bob2alice.forward(alice)
+    sender.send(bob, CMD_SIGN)
+    sender.expectMsg(ChannelCommandResponse.Ok)
+
+    val commitSig = bob2alice.expectMsgType[CommitSig]
+    assert(commitSig.htlcSignatures.size == 10)
+    val bin = LightningMessageCodecs.lightningMessageCodec.encode(commitSig).require.bytes
+    // if the encrypted peer backup is > 60Kb it is not serialized and we end up with a small LN message, which is exactly what we don't want
+    assert(bin.size > 5000)
   }
 
   test("recv RevokeAndAck (one htlc sent)") { f =>

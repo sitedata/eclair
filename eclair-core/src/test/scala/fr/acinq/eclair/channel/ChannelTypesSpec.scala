@@ -52,7 +52,10 @@ class ChannelTypesSpec extends TestKitBaseClass with AnyFunSuiteLike with StateT
       TestCase(Features(StaticRemoteKey -> Optional), Features(StaticRemoteKey -> Mandatory), ChannelFeatures(Features(StaticRemoteKey -> Mandatory))),
       TestCase(Features(StaticRemoteKey -> Optional, Wumbo -> Optional), Features(StaticRemoteKey -> Mandatory, Wumbo -> Mandatory), ChannelFeatures(Features(StaticRemoteKey -> Mandatory, Wumbo -> Mandatory))),
       TestCase(Features(StaticRemoteKey -> Optional, AnchorOutputs -> Optional), Features(StaticRemoteKey -> Optional), ChannelFeatures(Features(StaticRemoteKey -> Mandatory))),
-      TestCase(Features(StaticRemoteKey -> Mandatory, AnchorOutputs -> Optional), Features(StaticRemoteKey -> Optional, AnchorOutputs -> Optional), ChannelFeatures(Features(StaticRemoteKey -> Mandatory, AnchorOutputs -> Mandatory)))
+      TestCase(Features(StaticRemoteKey -> Mandatory, AnchorOutputs -> Optional), Features(StaticRemoteKey -> Optional, AnchorOutputs -> Optional), ChannelFeatures(Features(StaticRemoteKey -> Mandatory, AnchorOutputs -> Mandatory))),
+      TestCase(Features(OptionUpfrontShutdownScript -> Optional), Features.empty, ChannelFeatures(Features.empty)),
+      TestCase(Features(OptionUpfrontShutdownScript -> Optional), Features(OptionUpfrontShutdownScript -> Optional), ChannelFeatures(Features(OptionUpfrontShutdownScript -> Mandatory))),
+      TestCase(Features(StaticRemoteKey -> Optional, AnchorOutputs -> Optional, OptionUpfrontShutdownScript -> Optional), Features(StaticRemoteKey -> Optional, AnchorOutputs -> Optional, OptionUpfrontShutdownScript -> Optional), ChannelFeatures(Features(StaticRemoteKey -> Mandatory, AnchorOutputs -> Mandatory, OptionUpfrontShutdownScript -> Mandatory))),
     )
 
     for (testCase <- testCases) {

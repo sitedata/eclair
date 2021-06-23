@@ -71,6 +71,8 @@ object StateTestsTags {
   val NoMaxHtlcValueInFlight = "no_max_htlc_value_in_flight"
   /** If set, max-htlc-value-in-flight will be set to a low value for Alice. */
   val AliceLowMaxHtlcValueInFlight = "alice_low_max_htlc_value_in_flight"
+  /** If set, channels will use option_upfront_shutdown_script. */
+  val OptionUpfrontShutdownScript = "option_upfront_shutdown_script"
 }
 
 trait StateTestsHelperMethods extends TestKitBase {
@@ -85,7 +87,9 @@ trait StateTestsHelperMethods extends TestKitBase {
                           relayerA: TestProbe,
                           relayerB: TestProbe,
                           channelUpdateListener: TestProbe,
-                          wallet: EclairWallet) {
+                          wallet: EclairWallet,
+                          alicePeer: TestProbe,
+                          bobPeer: TestProbe) {
     def currentBlockHeight: Long = alice.underlyingActor.nodeParams.currentBlockHeight
   }
 
@@ -106,7 +110,7 @@ trait StateTestsHelperMethods extends TestKitBase {
     val router = TestProbe()
     val alice: TestFSMRef[State, Data, Channel] = TestFSMRef(new Channel(nodeParamsA, wallet, Bob.nodeParams.nodeId, alice2blockchain.ref, relayerA.ref, FakeTxPublisherFactory(alice2blockchain)), alicePeer.ref)
     val bob: TestFSMRef[State, Data, Channel] = TestFSMRef(new Channel(nodeParamsB, wallet, Alice.nodeParams.nodeId, bob2blockchain.ref, relayerB.ref, FakeTxPublisherFactory(bob2blockchain)), bobPeer.ref)
-    SetupFixture(alice, bob, alice2bob, bob2alice, alice2blockchain, bob2blockchain, router, relayerA, relayerB, channelUpdateListener, wallet)
+    SetupFixture(alice, bob, alice2bob, bob2alice, alice2blockchain, bob2blockchain, router, relayerA, relayerB, channelUpdateListener, wallet, alicePeer, bobPeer)
   }
 
   def setChannelFeatures(defaultChannelParams: LocalParams, tags: Set[String]): LocalParams = {
@@ -117,6 +121,7 @@ trait StateTestsHelperMethods extends TestKitBase {
       .modify(_.features.activated).usingIf(tags.contains(StateTestsTags.StaticRemoteKey))(_.updated(Features.StaticRemoteKey, FeatureSupport.Optional))
       .modify(_.features.activated).usingIf(tags.contains(StateTestsTags.AnchorOutputs))(_.updated(Features.StaticRemoteKey, FeatureSupport.Mandatory).updated(Features.AnchorOutputs, FeatureSupport.Optional))
       .modify(_.features.activated).usingIf(tags.contains(StateTestsTags.ShutdownAnySegwit))(_.updated(Features.ShutdownAnySegwit, FeatureSupport.Optional))
+      .modify(_.features.activated).usingIf(tags.contains(StateTestsTags.OptionUpfrontShutdownScript))(_.updated(Features.OptionUpfrontShutdownScript, FeatureSupport.Optional))
   }
 
   def reachNormal(setup: SetupFixture, tags: Set[String] = Set.empty): Unit = {
@@ -124,12 +129,18 @@ trait StateTestsHelperMethods extends TestKitBase {
     import setup._
 
     val channelConfig = ChannelConfig.standard
-    val channelFeatures = if (tags.contains(StateTestsTags.AnchorOutputs)) {
-      ChannelFeatures(Features(Features.StaticRemoteKey -> FeatureSupport.Mandatory, Features.AnchorOutputs -> FeatureSupport.Mandatory))
-    } else if (tags.contains(StateTestsTags.StaticRemoteKey)) {
-      ChannelFeatures(Features(Features.StaticRemoteKey -> FeatureSupport.Mandatory))
-    } else {
-      ChannelFeatures(Features.empty)
+    val channelFeatures = {
+      val map = collection.mutable.HashMap.empty[Feature, FeatureSupport]
+      if (tags.contains(StateTestsTags.AnchorOutputs)) {
+        map.put(Features.StaticRemoteKey, FeatureSupport.Mandatory)
+        map.put(Features.AnchorOutputs, FeatureSupport.Mandatory)
+      } else if (tags.contains(StateTestsTags.StaticRemoteKey)) {
+        map.put(Features.StaticRemoteKey, FeatureSupport.Mandatory)
+      }
+      if (tags.contains(StateTestsTags.OptionUpfrontShutdownScript)) {
+        map.put(Features.OptionUpfrontShutdownScript, FeatureSupport.Mandatory)
+      }
+      ChannelFeatures(Features(map.toMap))
     }
 
     val channelFlags = if (tags.contains(StateTestsTags.ChannelsPublic)) ChannelFlags.AnnounceChannel else ChannelFlags.Empty

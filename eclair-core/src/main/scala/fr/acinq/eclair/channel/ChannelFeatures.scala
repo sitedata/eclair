@@ -16,7 +16,7 @@
 
 package fr.acinq.eclair.channel
 
-import fr.acinq.eclair.Features.{AnchorOutputs, StaticRemoteKey, Wumbo}
+import fr.acinq.eclair.Features.{AnchorOutputs, OptionUpfrontShutdownScript, StaticRemoteKey, Wumbo}
 import fr.acinq.eclair.transactions.Transactions.{AnchorOutputsCommitmentFormat, CommitmentFormat, DefaultCommitmentFormat}
 import fr.acinq.eclair.{Feature, FeatureSupport, Features}
 
@@ -59,6 +59,7 @@ object ChannelFeatures {
       StaticRemoteKey,
       Wumbo,
       AnchorOutputs,
+      OptionUpfrontShutdownScript
     ).filter(f => Features.canUseFeature(localFeatures, remoteFeatures, f))
     ChannelFeatures(Features(availableFeatures.map(f => f -> FeatureSupport.Mandatory).toMap))
   }

@@ -73,9 +73,9 @@ class ChannelCodecsSpec extends AnyFunSuite {
       .localCommit
       .publishableTxs
       .htlcTxsAndSigs
-      .map(data => (Scripts.der(data.localSig), Scripts.der(data.remoteSig)))
+      .map(data => Scripts.der(data.remoteSig))
 
-    assert(ref === sigs)
+    assert(ref.map(_._2) === sigs)
   }
 
   test("backward compatibility DATA_WAIT_FOR_FUNDING_CONFIRMED_COMPAT_01_Codec") {
@@ -293,7 +293,7 @@ object ChannelCodecsSpec {
     val fundingAmount = fundingTx.txOut.head.amount
     val commitmentInput = Funding.makeFundingInputInfo(fundingTx.hash, 0, fundingAmount, channelKeyManager.fundingPublicKey(localParams.fundingKeyPath).publicKey, remoteParams.fundingPubKey)
 
-    val localCommit = LocalCommit(0, CommitmentSpec(htlcs.toSet, FeeratePerKw(1500 sat), 50000000 msat, 70000000 msat), PublishableTxs(CommitTx(commitmentInput, Transaction(2, Nil, Nil, 0)), Nil))
+    val localCommit = LocalCommit(0, CommitmentSpec(htlcs.toSet, FeeratePerKw(1500 sat), 50000000 msat, 70000000 msat), PublishableTxs(CommitTx(commitmentInput, Transaction(2, Nil, Nil, 0)), ByteVector64.Zeroes, Nil))
     val remoteCommit = RemoteCommit(0, CommitmentSpec(htlcs.map(_.opposite).toSet, FeeratePerKw(1500 sat), 50000 msat, 700000 msat), ByteVector32(hex"0303030303030303030303030303030303030303030303030303030303030303"), PrivateKey(ByteVector.fill(32)(4)).publicKey)
     val commitments = Commitments(ChannelVersion.STANDARD, localParams, remoteParams, channelFlags = 0x01.toByte, localCommit, remoteCommit, LocalChanges(Nil, Nil, Nil), RemoteChanges(Nil, Nil, Nil),
       localNextHtlcId = 32L,

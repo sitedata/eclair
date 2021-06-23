@@ -524,10 +524,11 @@ object Helpers {
       val preimages = commitments.localChanges.all.collect { case u: UpdateFulfillHtlc => u.paymentPreimage }.map(r => Crypto.sha256(r) -> r).toMap
 
       val htlcTxs: Map[OutPoint, Option[HtlcTx]] = localCommit.publishableTxs.htlcTxsAndSigs.collect {
-        case HtlcTxAndSigs(txInfo@HtlcSuccessTx(_, _, paymentHash, _), localSig, remoteSig) =>
+        case HtlcTxAndSigs(txInfo@HtlcSuccessTx(_, _, paymentHash, _), remoteSig) =>
           if (preimages.contains(paymentHash)) {
             // incoming htlc for which we have the preimage: we can spend it immediately
             txInfo.input.outPoint -> generateTx("htlc-success") {
+              val localSig = keyManager.sign(txInfo, keyManager.htlcPoint(channelKeyPath), localPerCommitmentPoint, TxOwner.Local, commitmentFormat)
               Right(Transactions.addSigs(txInfo, localSig, remoteSig, preimages(paymentHash), commitmentFormat))
             }
           } else {
@@ -535,9 +536,10 @@ object Helpers {
             // preimage later, otherwise it will eventually timeout and they will get their funds back
             txInfo.input.outPoint -> None
           }
-        case HtlcTxAndSigs(txInfo: HtlcTimeoutTx, localSig, remoteSig) =>
+        case HtlcTxAndSigs(txInfo: HtlcTimeoutTx, remoteSig) =>
           // outgoing htlc: they may or may not have the preimage, the only thing to do is try to get back our funds after timeout
           txInfo.input.outPoint -> generateTx("htlc-timeout") {
+            val localSig = keyManager.sign(txInfo, keyManager.htlcPoint(channelKeyPath), localPerCommitmentPoint, TxOwner.Local, commitmentFormat)
             Right(Transactions.addSigs(txInfo, localSig, remoteSig, commitmentFormat))
           }
       }.toMap

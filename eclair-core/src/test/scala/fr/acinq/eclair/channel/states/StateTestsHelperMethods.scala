@@ -288,7 +288,7 @@ trait StateTestsHelperMethods extends TestKitBase {
     assert(closingState.localCommitPublished.isDefined)
     val localCommitPublished = closingState.localCommitPublished.get
 
-    assert(s2blockchain.expectMsgType[TxPublisher.PublishRawTx].tx == commitTx)
+    assert(s2blockchain.expectMsgType[TxPublisher.PublishRawTx].tx.txid == commitTx.txid)
     if (closingState.commitments.commitmentFormat == Transactions.AnchorOutputsCommitmentFormat) {
       assert(s2blockchain.expectMsgType[TxPublisher.PublishReplaceableTx].txInfo.isInstanceOf[ClaimLocalAnchorOutputTx])
     }

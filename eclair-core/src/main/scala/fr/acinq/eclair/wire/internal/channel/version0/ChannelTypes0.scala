@@ -16,7 +16,8 @@
 
 package fr.acinq.eclair.wire.internal.channel.version0
 
-import fr.acinq.bitcoin.{ByteVector32, OutPoint, Satoshi, Transaction, TxOut}
+import fr.acinq.bitcoin.Crypto.PublicKey
+import fr.acinq.bitcoin.{ByteVector32, ByteVector64, Crypto, OP_CHECKMULTISIG, OP_PUSHDATA, OutPoint, Satoshi, Script, ScriptWitness, Transaction, TxOut}
 import fr.acinq.eclair.channel
 import fr.acinq.eclair.transactions.Transactions._
 
@@ -101,5 +102,31 @@ private[channel] object ChannelTypes0 {
    * put dummy values in the migration.
    */
   def migrateClosingTx(tx: Transaction): ClosingTx = ClosingTx(InputInfo(tx.txIn.head.outPoint, TxOut(Satoshi(0), Nil), Nil), tx, None)
+
+
+  def extractRemoteSig(commitTx: CommitTx, remoteFundingPubKey: PublicKey): ByteVector64 = {
+    require(commitTx.tx.txIn.size == 1, s"commit tx must only have one output, found ${commitTx.tx.txIn.size}")
+    val ScriptWitness(Seq(_, sig1, sig2, redeemScript)) = commitTx.tx.txIn.head.witness
+    val _ :: OP_PUSHDATA(pub1, _) :: OP_PUSHDATA(pub2, _) :: _ :: OP_CHECKMULTISIG :: Nil = Script.parse(redeemScript)
+    require(pub1 == remoteFundingPubKey.value || pub2 == remoteFundingPubKey.value, "unrecognized funding pubkey")
+    if (pub1 == remoteFundingPubKey.value) {
+      Crypto.der2compact(sig1)
+    } else {
+      Crypto.der2compact(sig2)
+    }
+  }
+
+  def extractRemoteSig(htlcTx: HtlcTx): ByteVector64 = {
+    require(htlcTx.tx.txIn.size == 1, s"commit tx must only have one output, found ${htlcTx.tx.txIn.size}")
+    val remoteSigAndSigHash = htlcTx match {
+      case htlcSuccessTx: HtlcSuccessTx =>
+        val ScriptWitness(_ :: remoteSigAndSigHash :: _ :: _ :: _ :: Nil) = htlcSuccessTx.tx.txIn.head.witness
+        remoteSigAndSigHash
+      case htlcTimeoutTx: HtlcTimeoutTx =>
+        val ScriptWitness(_ :: remoteSigAndSigHash :: _ :: _ :: _ :: Nil) = htlcTimeoutTx.tx.txIn.head.witness
+        remoteSigAndSigHash
+    }
+    ByteVector64(Crypto.der2compact(remoteSigAndSigHash).dropRight(1)) // we drop the sig hash byte
+  }
 
 }

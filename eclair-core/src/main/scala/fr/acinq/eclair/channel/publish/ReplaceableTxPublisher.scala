@@ -146,12 +146,12 @@ object ReplaceableTxPublisher {
             case u: UpdateFulfillHtlc if Crypto.sha256(u.paymentPreimage) == tx.paymentHash => u.paymentPreimage
           }.flatMap(preimage => {
             commitments.localCommit.publishableTxs.htlcTxsAndSigs.collectFirst {
-              case HtlcTxAndSigs(HtlcSuccessTx(input, _, _, _), _, remoteSig) if input.outPoint == tx.input.outPoint => HtlcSuccess(tx, remoteSig, preimage)
+              case HtlcTxAndSigs(HtlcSuccessTx(input, _, _, _), remoteSig) if input.outPoint == tx.input.outPoint => HtlcSuccess(tx, remoteSig, preimage)
             }
           })
         case tx: HtlcTimeoutTx =>
           commitments.localCommit.publishableTxs.htlcTxsAndSigs.collectFirst {
-            case HtlcTxAndSigs(HtlcTimeoutTx(input, _, _), _, remoteSig) if input.outPoint == tx.input.outPoint => HtlcTimeout(tx, remoteSig)
+            case HtlcTxAndSigs(HtlcTimeoutTx(input, _, _), remoteSig) if input.outPoint == tx.input.outPoint => HtlcTimeout(tx, remoteSig)
           }
       }
     }

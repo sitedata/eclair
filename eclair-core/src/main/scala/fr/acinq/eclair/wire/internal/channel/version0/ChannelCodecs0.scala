@@ -16,6 +16,7 @@
 
 package fr.acinq.eclair.wire.internal.channel.version0
 
+import fr.acinq.bitcoin.Crypto.PublicKey
 import fr.acinq.bitcoin.DeterministicWallet.{ExtendedPrivateKey, KeyPath}
 import fr.acinq.bitcoin.{ByteVector32, ByteVector64, Crypto, OutPoint, Transaction, TxOut}
 import fr.acinq.eclair.MilliSatoshi
@@ -29,6 +30,7 @@ import fr.acinq.eclair.wire.protocol.UpdateMessage
 import scodec.bits.BitVector
 import scodec.codecs._
 import scodec.{Attempt, Codec}
+import shapeless.HNil
 
 import java.util.UUID
 import scala.concurrent.duration._
@@ -145,17 +147,19 @@ private[channel] object ChannelCodecs0 {
 
     val htlcTxAndSigsCodec: Codec[HtlcTxAndSigs] = (
       ("txinfo" | txWithInputInfoCodec.downcast[HtlcTx]) ::
-        ("localSig" | variableSizeBytes(uint16, sig64OrDERCodec)) :: // we store as variable length for historical purposes (we used to store as DER encoded)
-        ("remoteSig" | variableSizeBytes(uint16, sig64OrDERCodec))).as[HtlcTxAndSigs].decodeOnly
+          ("localSig" | variableSizeBytes(uint16, sig64OrDERCodec).unit(ByteVector64.Zeroes)) :: // we store as variable length for historical purposes (we used to store as DER encoded)
+        ("remoteSig" | variableSizeBytes(uint16, sig64OrDERCodec))).dropUnits.as[HtlcTxAndSigs].decodeOnly
 
-    val publishableTxsCodec: Codec[PublishableTxs] = (
-      ("commitTx" | (("inputInfo" | inputInfoCodec) :: ("tx" | txCodec)).as[CommitTx]) ::
-        ("htlcTxsAndSigs" | listOfN(uint16, htlcTxAndSigsCodec))).as[PublishableTxs].decodeOnly
+    def publishableTxsCodec(remoteFundingPubKey: PublicKey): Codec[PublishableTxs] = (
+      ("commitTx" | (("inputInfo" | inputInfoCodec) :: ("tx" | txCodec)).as[CommitTx]) >>:~ { commitTx =>
+        val remoteSig = ChannelTypes0.extractRemoteSig(commitTx, remoteFundingPubKey)
+        provide(remoteSig) :: ("htlcTxsAndSigs" | listOfN(uint16, htlcTxAndSigsCodec))
+      }).as[PublishableTxs].decodeOnly
 
-    val localCommitCodec: Codec[LocalCommit] = (
+    def localCommitCodec(remoteFundingPubKey: PublicKey): Codec[LocalCommit] = (
       ("index" | uint64overflow) ::
         ("spec" | commitmentSpecCodec) ::
-        ("publishableTxs" | publishableTxsCodec)).as[LocalCommit].decodeOnly
+        ("publishableTxs" | publishableTxsCodec(remoteFundingPubKey))).as[LocalCommit].decodeOnly
 
     val remoteCommitCodec: Codec[RemoteCommit] = (
       ("index" | uint64overflow) ::
@@ -223,19 +227,20 @@ private[channel] object ChannelCodecs0 {
     val commitmentsCodec: Codec[Commitments] = (
       ("channelVersion" | channelVersionCodec) >>:~ { channelVersion =>
         ("localParams" | localParamsCodec(channelVersion)) ::
-          ("remoteParams" | remoteParamsCodec) ::
-          ("channelFlags" | byte) ::
-          ("localCommit" | localCommitCodec) ::
-          ("remoteCommit" | remoteCommitCodec) ::
-          ("localChanges" | localChangesCodec) ::
-          ("remoteChanges" | remoteChangesCodec) ::
-          ("localNextHtlcId" | uint64overflow) ::
-          ("remoteNextHtlcId" | uint64overflow) ::
-          ("originChannels" | originsMapCodec) ::
-          ("remoteNextCommitInfo" | either(bool, waitingForRevocationCodec, publicKey)) ::
-          ("commitInput" | inputInfoCodec) ::
-          ("remotePerCommitmentSecrets" | ShaChain.shaChainCodec) ::
-          ("channelId" | bytes32)
+          (("remoteParams" | remoteParamsCodec) >>:~ { remoteParams =>
+            ("channelFlags" | byte) ::
+              ("localCommit" | localCommitCodec(remoteParams.fundingPubKey)) ::
+              ("remoteCommit" | remoteCommitCodec) ::
+              ("localChanges" | localChangesCodec) ::
+              ("remoteChanges" | remoteChangesCodec) ::
+              ("localNextHtlcId" | uint64overflow) ::
+              ("remoteNextHtlcId" | uint64overflow) ::
+              ("originChannels" | originsMapCodec) ::
+              ("remoteNextCommitInfo" | either(bool, waitingForRevocationCodec, publicKey)) ::
+              ("commitInput" | inputInfoCodec) ::
+              ("remotePerCommitmentSecrets" | ShaChain.shaChainCodec) ::
+              ("channelId" | bytes32)
+          })
       }).as[Commitments].decodeOnly
 
     val closingTxProposedCodec: Codec[ClosingTxProposed] = (

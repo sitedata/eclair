@@ -499,7 +499,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
                 signature = localSigOfRemoteTx
               )
               val commitments = Commitments(channelVersion, localParams, remoteParams, channelFlags,
-                LocalCommit(0, localSpec, PublishableTxs(signedLocalCommitTx, Nil)), RemoteCommit(0, remoteSpec, remoteCommitTx.tx.txid, remoteFirstPerCommitmentPoint),
+                LocalCommit(0, localSpec, PublishableTxs(localCommitTx, remoteSig, Nil)), RemoteCommit(0, remoteSpec, remoteCommitTx.tx.txid, remoteFirstPerCommitmentPoint),
                 LocalChanges(Nil, Nil, Nil), RemoteChanges(Nil, Nil, Nil),
                 localNextHtlcId = 0L, remoteNextHtlcId = 0L,
                 originChannels = Map.empty,
@@ -542,7 +542,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
         case Success(_) =>
           val commitInput = localCommitTx.input
           val commitments = Commitments(channelVersion, localParams, remoteParams, channelFlags,
-            LocalCommit(0, localSpec, PublishableTxs(signedLocalCommitTx, Nil)), remoteCommit,
+            LocalCommit(0, localSpec, PublishableTxs(localCommitTx, remoteSig, Nil)), remoteCommit,
             LocalChanges(Nil, Nil, Nil), RemoteChanges(Nil, Nil, Nil),
             localNextHtlcId = 0L, remoteNextHtlcId = 0L,
             originChannels = Map.empty,
@@ -606,7 +606,10 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
       stay using d.copy(deferred = Some(msg)) // no need to store, they will re-send if we get disconnected
 
     case Event(WatchFundingConfirmedTriggered(blockHeight, txIndex, fundingTx), d@DATA_WAIT_FOR_FUNDING_CONFIRMED(commitments, _, initialRelayFees_opt, _, deferred, _)) =>
-      Try(Transaction.correctlySpends(commitments.localCommit.publishableTxs.commitTx.tx, Seq(fundingTx), ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)) match {
+      val fundingPubKey = keyManager.fundingPublicKey(commitments.localParams.fundingKeyPath)
+      val localSigOfLocalTx = keyManager.sign(commitments.localCommit.publishableTxs.commitTx, fundingPubKey, TxOwner.Local, commitments.channelVersion.commitmentFormat)
+      val signedLocalCommitTx = Transactions.addSigs(commitments.localCommit.publishableTxs.commitTx, fundingPubKey.publicKey, commitments.remoteParams.fundingPubKey, localSigOfLocalTx, commitments.localCommit.publishableTxs.remoteSig).tx
+      Try(Transaction.correctlySpends(signedLocalCommitTx, Seq(fundingTx), ScriptFlags.STANDARD_SCRIPT_VERIFY_FLAGS)) match {
         case Success(_) =>
           log.info(s"channelId=${commitments.channelId} was confirmed at blockHeight=$blockHeight txIndex=$txIndex")
           blockchain ! WatchFundingLost(self, commitments.commitInput.outPoint.txid, nodeParams.minDepthBlocks)
@@ -2214,7 +2217,12 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
       log.warning("we have an outdated commitment: will not publish our local tx")
       stay
     } else {
-      val commitTx = d.commitments.localCommit.publishableTxs.commitTx.tx
+      val unsignedCommitTx = d.commitments.localCommit.publishableTxs.commitTx
+      val localSig = keyManager.sign(unsignedCommitTx, keyManager.fundingPublicKey(d.commitments.localParams.fundingKeyPath), TxOwner.Local, d.commitments.commitmentFormat)
+      val remoteSig = d.commitments.localCommit.publishableTxs.remoteSig
+      // no need to compute htlc sigs if commit sig doesn't check out
+      val commitTx = Transactions.addSigs(unsignedCommitTx, keyManager.fundingPublicKey(d.commitments.localParams.fundingKeyPath).publicKey, d.commitments.remoteParams.fundingPubKey, localSig, remoteSig).tx
+
       val localCommitPublished = Helpers.Closing.claimCurrentLocalCommitTxOutputs(keyManager, d.commitments, commitTx, nodeParams.onChainFeeConf.feeEstimator, nodeParams.onChainFeeConf.feeTargets)
       val nextData = d match {
         case closing: DATA_CLOSING => closing.copy(localCommitPublished = Some(localCommitPublished))
@@ -2393,7 +2401,11 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
     val error = Error(d.channelId, exc.getMessage)
 
     // let's try to spend our current local tx
-    val commitTx = d.commitments.localCommit.publishableTxs.commitTx.tx
+    val unsignedCommitTx = d.commitments.localCommit.publishableTxs.commitTx
+    val localSig = keyManager.sign(unsignedCommitTx, keyManager.fundingPublicKey(d.commitments.localParams.fundingKeyPath), TxOwner.Local, d.commitments.commitmentFormat)
+    val remoteSig = d.commitments.localCommit.publishableTxs.remoteSig
+    // no need to compute htlc sigs if commit sig doesn't check out
+    val commitTx = Transactions.addSigs(unsignedCommitTx, keyManager.fundingPublicKey(d.commitments.localParams.fundingKeyPath).publicKey, d.commitments.remoteParams.fundingPubKey, localSig, remoteSig).tx
     val localCommitPublished = Helpers.Closing.claimCurrentLocalCommitTxOutputs(keyManager, d.commitments, commitTx, nodeParams.onChainFeeConf.feeEstimator, nodeParams.onChainFeeConf.feeTargets)
 
     goto(ERR_INFORMATION_LEAK) calling doPublish(localCommitPublished, d.commitments) sending error

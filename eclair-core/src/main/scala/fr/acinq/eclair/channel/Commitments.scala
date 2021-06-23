@@ -39,8 +39,8 @@ case class RemoteChanges(proposed: List[UpdateMessage], acked: List[UpdateMessag
   def all: List[UpdateMessage] = proposed ++ signed ++ acked
 }
 case class Changes(ourChanges: LocalChanges, theirChanges: RemoteChanges)
-case class HtlcTxAndSigs(txinfo: HtlcTx, localSig: ByteVector64, remoteSig: ByteVector64)
-case class PublishableTxs(commitTx: CommitTx, htlcTxsAndSigs: List[HtlcTxAndSigs])
+case class HtlcTxAndSigs(txinfo: HtlcTx, remoteSig: ByteVector64)
+case class PublishableTxs(commitTx: CommitTx, remoteSig: ByteVector64, htlcTxsAndSigs: List[HtlcTxAndSigs])
 case class LocalCommit(index: Long, spec: CommitmentSpec, publishableTxs: PublishableTxs)
 case class RemoteCommit(index: Long, spec: CommitmentSpec, txid: ByteVector32, remotePerCommitmentPoint: PublicKey)
 case class WaitingForRevocation(nextRemoteCommit: RemoteCommit, sent: CommitSig, sentAfterLocalCommitIndex: Long, reSignAsap: Boolean = false)
@@ -620,14 +620,14 @@ object Commitments {
         if (Transactions.checkSpendable(Transactions.addSigs(htlcTx, localSig, remoteSig, commitmentFormat)).isFailure) {
           return Left(InvalidHtlcSignature(commitments.channelId, htlcTx.tx))
         }
-        HtlcTxAndSigs(htlcTx, localSig, remoteSig)
+        HtlcTxAndSigs(htlcTx, remoteSig)
       case (htlcTx: HtlcSuccessTx, localSig, remoteSig) =>
         // we can't check that htlc-success tx are spendable because we need the payment preimage; thus we only check the remote sig
         // we verify the signature from their point of view, where it is a remote tx
         if (!Transactions.checkSig(htlcTx, remoteSig, remoteHtlcPubkey, TxOwner.Remote, commitmentFormat)) {
           return Left(InvalidHtlcSignature(commitments.channelId, htlcTx.tx))
         }
-        HtlcTxAndSigs(htlcTx, localSig, remoteSig)
+        HtlcTxAndSigs(htlcTx, remoteSig)
     }
 
     // we will send our revocation preimage + our next revocation hash
@@ -643,7 +643,7 @@ object Commitments {
     val localCommit1 = LocalCommit(
       index = localCommit.index + 1,
       spec,
-      publishableTxs = PublishableTxs(signedCommitTx, htlcTxsAndSigs))
+      publishableTxs = PublishableTxs(localCommitTx, commit.signature, htlcTxsAndSigs))
     val ourChanges1 = localChanges.copy(acked = Nil)
     val theirChanges1 = remoteChanges.copy(proposed = Nil, acked = remoteChanges.acked ++ remoteChanges.proposed)
     val commitments1 = commitments.copy(localCommit = localCommit1, localChanges = ourChanges1, remoteChanges = theirChanges1)

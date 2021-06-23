@@ -104,7 +104,9 @@ private[channel] object ChannelCodecs1 {
 
     val txOutCodec: Codec[TxOut] = lengthDelimited(bytes.xmap(d => TxOut.read(d.toArray), d => TxOut.write(d)))
 
-    val txCodec: Codec[Transaction] = lengthDelimited(bytes.xmap(d => Transaction.read(d.toArray), d => Transaction.write(d)))
+    val txCodec: Codec[Transaction] = lengthDelimited(bytes.xmap(d =>
+      Transaction.read(d.toArray),
+      d => Transaction.write(d)))
 
     val closingTxCodec: Codec[ClosingTx] = txCodec.decodeOnly.xmap(
       tx => ChannelTypes0.migrateClosingTx(tx),

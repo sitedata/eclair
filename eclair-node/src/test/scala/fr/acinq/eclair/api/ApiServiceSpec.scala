@@ -470,7 +470,7 @@ class ApiServiceSpec extends AnyFunSuite with ScalatestRouteTest with IdiomaticM
     val eclair = mock[Eclair]
     eclair.sendWithPreimage(any, any, any, any, any, any, any)(any[Timeout]) returns Future.successful(UUID.randomUUID())
     val mockService = new MockService(eclair)
-    val remoteNodeId = PublicKey(hex"030bb6a5e0c6b203c7e2180fb78c7ba4bdce46126761d8201b91ddac089cdecc87")
+    val remoteNodeId = PublicKey.fromHex("030bb6a5e0c6b203c7e2180fb78c7ba4bdce46126761d8201b91ddac089cdecc87")
 
     Post("/sendtonode", FormData("amountMsat" -> "123").toEntity) ~>
       addCredentials(BasicHttpCredentials("", mockApi().password)) ~>

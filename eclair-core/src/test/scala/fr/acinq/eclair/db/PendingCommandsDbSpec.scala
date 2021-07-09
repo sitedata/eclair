@@ -77,7 +77,7 @@ class PendingCommandsDbSpec extends AnyFunSuite {
     }
   }
 
-  test("migrate database v1->v2") {
+  test("migrate database v1->v2/v3") {
     forAllDbs {
       case dbs: TestPgDatabases =>
         migrationCheck(
@@ -97,7 +97,7 @@ class PendingCommandsDbSpec extends AnyFunSuite {
             }
           },
           dbName = "pending_relay",
-          targetVersion = 2,
+          targetVersion = 3,
           postCheck = _ =>
             assert(dbs.pendingCommands.listSettlementCommands().toSet === testCases.map(tc => tc.channelId -> tc.cmd))
         )

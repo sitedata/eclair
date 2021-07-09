@@ -232,7 +232,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
 
     case Event(INPUT_RESTORED(data), _) =>
       log.info("restoring channel")
-      context.system.eventStream.publish(ChannelRestored(self, data.channelId, peer, remoteNodeId, data.commitments.localParams.isFunder, data.commitments))
+      context.system.eventStream.publish(ChannelRestored(self, data.channelId, peer, remoteNodeId, data))
       txPublisher ! SetChannelId(remoteNodeId, data.channelId)
       data match {
         // NB: order matters!
@@ -1023,7 +1023,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
           log.debug("not sending a new identical channel_update, current one was created {} days ago", age.toDays)
           stay
         case _ =>
-          log.info("refreshing channel_update announcement (reason={})", reason)
+          log.debug("refreshing channel_update announcement (reason={})", reason)
           // we use GOTO instead of stay because we want to fire transitions
           goto(NORMAL) using d.copy(channelUpdate = channelUpdate1) storing()
       }
@@ -1039,7 +1039,7 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
       cancelTimer(Reconnected.toString)
       // if we have pending unsigned htlcs, then we cancel them and advertise the fact that the channel is now disabled
       val d1 = if (d.commitments.localChanges.proposed.collectFirst { case add: UpdateAddHtlc => add }.isDefined) {
-        log.info("updating channel_update announcement (reason=disabled)")
+        log.debug("updating channel_update announcement (reason=disabled)")
         val channelUpdate = Announcements.makeChannelUpdate(nodeParams.chainHash, nodeParams.privateKey, remoteNodeId, d.shortChannelId, d.channelUpdate.cltvExpiryDelta, d.channelUpdate.htlcMinimumMsat, d.channelUpdate.feeBaseMsat, d.channelUpdate.feeProportionalMillionths, d.commitments.capacity.toMilliSatoshi, enable = false)
         d.commitments.localChanges.proposed.collect {
           case add: UpdateAddHtlc => relayer ! RES_ADD_SETTLED(d.commitments.originChannels(add.id), add, HtlcResult.Disconnected(channelUpdate))
@@ -1702,18 +1702,19 @@ class Channel(val nodeParams: NodeParams, val wallet: EclairWallet, remoteNodeId
     // a channel_reestablish when reconnecting a channel that recently got confirmed, and instead send a funding_locked
     // first and then go silent. This is due to a race condition on their side, so we trigger a reconnection, hoping that
     // we will eventually receive their channel_reestablish.
-    case Event(_: FundingLocked, _) =>
+    case Event(_: FundingLocked, d) =>
       log.warning("received funding_locked before channel_reestablish (known lnd bug): disconnecting...")
-      peer ! Peer.Disconnect(remoteNodeId)
-      stay
+      // NB: we use a small delay to ensure we've sent our warning before disconnecting.
+      context.system.scheduler.scheduleOnce(2 second, peer, Peer.Disconnect(remoteNodeId))
+      stay sending Warning(d.channelId, "spec violation: you sent funding_locked before channel_reestablish")
 
     // This handler is a workaround for an issue in lnd similar to the one above: they sometimes send announcement_signatures
     // before channel_reestablish, which is a minor spec violation. It doesn't halt the channel, we can simply postpone
     // that message.
-    case Event(remoteAnnSigs: AnnouncementSignatures, _) =>
+    case Event(remoteAnnSigs: AnnouncementSignatures, d) =>
       log.warning("received announcement_signatures before channel_reestablish (known lnd bug): delaying...")
       context.system.scheduler.scheduleOnce(5 seconds, self, remoteAnnSigs)
-      stay
+      stay sending Warning(d.channelId, "spec violation: you sent announcement_signatures before channel_reestablish")
 
     case Event(ProcessCurrentBlockCount(c), d: HasCommitments) => handleNewBlock(c, d)
 

@@ -7,6 +7,7 @@ import fr.acinq.eclair.db._
 import fr.acinq.eclair.db.pg.PgUtils.PgLock.LockFailureHandler
 import fr.acinq.eclair.db.pg.PgUtils.{PgLock, getVersion, using}
 import org.postgresql.jdbc.PgConnection
+import org.scalatest.Assertions.convertToEqualizer
 import org.sqlite.SQLiteConnection
 
 import java.io.File
@@ -65,7 +66,7 @@ object TestDatabases {
     // @formatter:off
     override val connection: PgConnection = pg.getPostgresDatabase.getConnection.asInstanceOf[PgConnection]
     // NB: we use a lazy val here: databases won't be initialized until we reference that variable
-    override lazy val db: Databases = Databases.PostgresDatabases(hikariConfig, UUID.randomUUID(), lock, jdbcUrlFile_opt = Some(jdbcUrlFile), readOnlyUser_opt = None)
+    override lazy val db: Databases = Databases.PostgresDatabases(hikariConfig, UUID.randomUUID(), lock, jdbcUrlFile_opt = Some(jdbcUrlFile), readOnlyUser_opt = None, resetJsonColumns = false)
     override def close(): Unit = pg.close()
     // @formatter:on
   }
@@ -91,7 +92,7 @@ object TestDatabases {
     val _ = dbs.db
     // check that db version was updated
     using(connection.createStatement()) { statement =>
-      assert(getVersion(statement, dbName).contains(targetVersion))
+      assert(getVersion(statement, dbName).contains(targetVersion), "unexpected version post-migration")
     }
     // post-migration checks
     postCheck(connection)

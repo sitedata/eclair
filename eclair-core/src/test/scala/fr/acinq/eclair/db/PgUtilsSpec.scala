@@ -2,15 +2,19 @@ package fr.acinq.eclair.db
 
 import com.opentable.db.postgres.embedded.EmbeddedPostgres
 import com.typesafe.config.{Config, ConfigFactory}
-import fr.acinq.eclair.db.pg.PgUtils.JdbcUrlChanged
+import fr.acinq.eclair.db.pg.PgUtils.ExtendedResultSet._
 import fr.acinq.eclair.db.pg.PgUtils.PgLock.{LockFailure, LockFailureHandler}
+import fr.acinq.eclair.db.pg.PgUtils.{JdbcUrlChanged, migrateTable, using}
 import fr.acinq.eclair.{TestKitBaseClass, TestUtils}
-import grizzled.slf4j.Logging
+import grizzled.slf4j.{Logger, Logging}
+import org.postgresql.jdbc.PgConnection
+import org.postgresql.util.PGInterval
 import org.scalatest.concurrent.Eventually
 import org.scalatest.funsuite.AnyFunSuiteLike
 
 import java.io.File
 import java.util.UUID
+import javax.sql.DataSource
 
 class PgUtilsSpec extends TestKitBaseClass with AnyFunSuiteLike with Eventually {
 
@@ -63,6 +67,38 @@ class PgUtilsSpec extends TestKitBaseClass with AnyFunSuiteLike with Eventually 
     pg.close()
   }
 
+  test("withLock utility method") {
+    val pg = EmbeddedPostgres.start()
+    val config = PgUtilsSpec.testConfig(pg.getPort)
+    val datadir = new File(TestUtils.BUILD_DIRECTORY, s"pg_test_${UUID.randomUUID()}")
+    datadir.mkdirs()
+    val instanceId1 = UUID.randomUUID()
+    // this will lock the database for this instance id
+    val db = Databases.postgres(config, instanceId1, datadir, LockFailureHandler.logAndThrow)
+    implicit val ds: DataSource = db.dataSource
+
+    // dummy query works
+    db.lock.withLock { conn =>
+      conn.createStatement().executeQuery("SELECT 1")
+    }
+
+    intercept[LockFailureHandler.LockException] {
+      db.lock.withLock { conn =>
+        // we start with a dummy query
+        conn.createStatement().executeQuery("SELECT 1")
+        // but before we complete the query, a separate connection takes the lock
+        using(pg.getPostgresDatabase.getConnection.prepareStatement(s"UPDATE lease SET expires_at = now() + ?, instance = ? WHERE id = 1")) {
+          statement =>
+            statement.setObject(1, new PGInterval("60 seconds"))
+            statement.setString(2, UUID.randomUUID().toString)
+            statement.executeUpdate()
+        }
+      }
+    }
+
+    pg.close()
+  }
+
   test("jdbc url check") {
     val pg = EmbeddedPostgres.start()
     val config = PgUtilsSpec.testConfig(pg.getPort)
@@ -84,6 +120,54 @@ class PgUtilsSpec extends TestKitBaseClass with AnyFunSuiteLike with Eventually 
     pg.close()
   }
 
+  test("grant rights to read-only user") {
+    val pg = EmbeddedPostgres.start()
+    pg.getPostgresDatabase.getConnection.asInstanceOf[PgConnection].execSQLUpdate("CREATE ROLE readonly NOLOGIN")
+    val config = ConfigFactory.parseString("postgres.readonly-user = readonly")
+      .withFallback(PgUtilsSpec.testConfig(pg.getPort))
+    val datadir = new File(TestUtils.BUILD_DIRECTORY, s"pg_test_${UUID.randomUUID()}")
+    datadir.mkdirs()
+    Databases.postgres(config, UUID.randomUUID(), datadir, LockFailureHandler.logAndThrow)
+  }
+
+  test("migration test") {
+    val pg = EmbeddedPostgres.start()
+    using(pg.getPostgresDatabase.getConnection.createStatement()) { statement =>
+      statement.executeUpdate("CREATE TABLE foo (bar INTEGER)")
+    }
+
+    def doMigrate() = {
+      migrateTable(
+        source = pg.getPostgresDatabase.getConnection,
+        destination = pg.getPostgresDatabase.getConnection,
+        sourceTable = "foo",
+        migrateSql = "UPDATE foo SET bar=? WHERE bar=?",
+        (rs, statement) => {
+          statement.setInt(1, rs.getInt("bar") * 10)
+          statement.setInt(2, rs.getInt("bar"))
+        }
+      )(Logger(classOf[PgUtilsSpec]))
+    }
+
+    // empty migration
+    doMigrate()
+
+    using(pg.getPostgresDatabase.getConnection.createStatement()) { statement =>
+      statement.executeUpdate("INSERT INTO foo VALUES (1)")
+      statement.executeUpdate("INSERT INTO foo VALUES (2)")
+      statement.executeUpdate("INSERT INTO foo VALUES (3)")
+    }
+
+    // non-empty migration
+    doMigrate()
+
+    using(pg.getPostgresDatabase.getConnection.createStatement()) { statement =>
+      val rs = statement.executeQuery("SELECT bar FROM foo")
+      assert(rs.map(_.getInt("bar")).toSet === Set(10, 20, 30))
+    }
+
+  }
+
 }
 
 object PgUtilsSpec extends Logging {
@@ -97,6 +181,7 @@ object PgUtilsSpec extends Logging {
        |  username = "postgres"
        |  password = ""
        |  readonly-user = ""
+       |  reset-json-columns = false
        |  pool {
        |    max-size = 10 // recommended value = number_of_cpu_cores * 2
        |    connection-timeout = 30 seconds

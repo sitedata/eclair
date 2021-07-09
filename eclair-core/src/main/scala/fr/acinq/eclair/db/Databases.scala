@@ -96,7 +96,8 @@ object Databases extends Logging {
               instanceId: UUID,
               lock: PgLock = PgLock.NoLock,
               jdbcUrlFile_opt: Option[File],
-              readOnlyUser_opt: Option[String])(implicit system: ActorSystem): PostgresDatabases = {
+              readOnlyUser_opt: Option[String],
+              resetJsonColumns: Boolean)(implicit system: ActorSystem): PostgresDatabases = {
 
       jdbcUrlFile_opt.foreach(jdbcUrlFile => checkIfDatabaseUrlIsUnchanged(hikariConfig.getJdbcUrl, jdbcUrlFile))
 
@@ -126,9 +127,21 @@ object Databases extends Logging {
       readOnlyUser_opt.foreach { readOnlyUser =>
         PgUtils.inTransaction { connection =>
           using(connection.createStatement()) { statement =>
-            logger.info(s"granting read-only access to user=$readOnlyUser")
-            statement.executeUpdate(s"GRANT SELECT ON ALL TABLES IN SCHEMA public TO $readOnlyUser")
+            val schemas = "public" :: "audit" :: "local" :: "network" :: "payments" :: Nil
+            schemas.foreach { schema =>
+              logger.info(s"granting read-only access to user=$readOnlyUser schema=$schema")
+              statement.executeUpdate(s"GRANT USAGE ON SCHEMA $schema TO $readOnlyUser")
+              statement.executeUpdate(s"GRANT SELECT ON ALL TABLES IN SCHEMA $schema TO $readOnlyUser")
+            }
           }
+        }
+      }
+
+      if (resetJsonColumns) {
+        logger.warn("resetting json columns...")
+        PgUtils.inTransaction { connection =>
+          databases.channels.resetJsonColumns(connection)
+          databases.network.resetJsonColumns(connection)
         }
       }
 
@@ -157,6 +170,10 @@ object Databases extends Logging {
         dbConfig.getString("driver") match {
           case "sqlite" => Databases.sqlite(chaindir)
           case "postgres" => Databases.postgres(dbConfig, instanceId, chaindir)
+          case "dual" =>
+            val sqlite = Databases.sqlite(chaindir)
+            val postgres = Databases.postgres(dbConfig, instanceId, chaindir)
+            DualDatabases(sqlite, postgres)
           case driver => throw new RuntimeException(s"unknown database driver `$driver`")
         }
     }
@@ -193,7 +210,8 @@ object Databases extends Logging {
     val port = dbConfig.getInt("postgres.port")
     val username = if (dbConfig.getIsNull("postgres.username") || dbConfig.getString("postgres.username").isEmpty) None else Some(dbConfig.getString("postgres.username"))
     val password = if (dbConfig.getIsNull("postgres.password") || dbConfig.getString("postgres.password").isEmpty) None else Some(dbConfig.getString("postgres.password"))
-    val readOnlyUser_opt =  if (dbConfig.getIsNull("postgres.readonly-user") || dbConfig.getString("postgres.readonly-user").isEmpty) None else Some(dbConfig.getString("postgres.readonly-user"))
+    val readOnlyUser_opt = if (dbConfig.getIsNull("postgres.readonly-user") || dbConfig.getString("postgres.readonly-user").isEmpty) None else Some(dbConfig.getString("postgres.readonly-user"))
+    val resetJsonColumns = dbConfig.getBoolean("postgres.reset-json-columns")
 
     val hikariConfig = new HikariConfig()
     hikariConfig.setJdbcUrl(s"jdbc:postgresql://$host:$port/$database")
@@ -226,7 +244,8 @@ object Databases extends Logging {
       instanceId = instanceId,
       lock = lock,
       jdbcUrlFile_opt = Some(jdbcUrlFile),
-      readOnlyUser_opt = readOnlyUser_opt
+      readOnlyUser_opt = readOnlyUser_opt,
+      resetJsonColumns = resetJsonColumns
     )
   }
 

@@ -27,8 +27,9 @@ import fr.acinq.eclair.db.Monitoring.Tags.DbBackends
 import fr.acinq.eclair.db.pg.PgUtils.PgLock
 import fr.acinq.eclair.wire.internal.channel.ChannelCodecs.stateDataCodec
 import grizzled.slf4j.Logging
+import scodec.bits.BitVector
 
-import java.sql.{Statement, Timestamp}
+import java.sql.{Connection, Statement, Timestamp}
 import java.time.Instant
 import javax.sql.DataSource
 
@@ -36,10 +37,11 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
 
   import PgUtils.ExtendedResultSet._
   import PgUtils._
+  import fr.acinq.eclair.json.JsonSerializers.{formats, serialization}
   import lock._
 
   val DB_NAME = "channels"
-  val CURRENT_VERSION = 4
+  val CURRENT_VERSION = 6
 
   inTransaction { pg =>
     using(pg.createStatement()) { statement =>
@@ -62,18 +64,49 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
         statement.executeUpdate("ALTER TABLE htlc_infos ALTER COLUMN commitment_number  SET DATA TYPE BIGINT USING commitment_number::BIGINT")
       }
 
+      def migration45(statement: Statement): Unit = {
+        statement.executeUpdate("ALTER TABLE local_channels ADD COLUMN json JSONB")
+        resetJsonColumns(pg, oldTableName = true)
+        statement.executeUpdate("ALTER TABLE local_channels ALTER COLUMN json SET NOT NULL")
+        statement.executeUpdate("CREATE INDEX local_channels_type_idx ON local_channels ((json->>'type'))")
+        statement.executeUpdate("CREATE INDEX local_channels_remote_node_id_idx ON local_channels ((json->'commitments'->'remoteParams'->>'nodeId'))")
+      }
+
+      def migration56(statement: Statement): Unit = {
+        statement.executeUpdate("CREATE SCHEMA IF NOT EXISTS local")
+        statement.executeUpdate("ALTER TABLE local_channels SET SCHEMA local")
+        statement.executeUpdate("ALTER TABLE local.local_channels RENAME TO channels")
+        statement.executeUpdate("ALTER TABLE htlc_infos SET SCHEMA local")
+      }
+
       getVersion(statement, DB_NAME) match {
         case None =>
-          statement.executeUpdate("CREATE TABLE local_channels (channel_id TEXT NOT NULL PRIMARY KEY, data BYTEA NOT NULL, is_closed BOOLEAN NOT NULL DEFAULT FALSE, created_timestamp TIMESTAMP WITH TIME ZONE, last_payment_sent_timestamp TIMESTAMP WITH TIME ZONE, last_payment_received_timestamp TIMESTAMP WITH TIME ZONE, last_connected_timestamp TIMESTAMP WITH TIME ZONE, closed_timestamp TIMESTAMP WITH TIME ZONE)")
-          statement.executeUpdate("CREATE TABLE htlc_infos (channel_id TEXT NOT NULL, commitment_number BIGINT NOT NULL, payment_hash TEXT NOT NULL, cltv_expiry BIGINT NOT NULL, FOREIGN KEY(channel_id) REFERENCES local_channels(channel_id))")
-          statement.executeUpdate("CREATE INDEX htlc_infos_idx ON htlc_infos(channel_id, commitment_number)")
+          statement.executeUpdate("CREATE SCHEMA IF NOT EXISTS local")
+
+          statement.executeUpdate("CREATE TABLE local.channels (channel_id TEXT NOT NULL PRIMARY KEY, data BYTEA NOT NULL, json JSONB NOT NULL, is_closed BOOLEAN NOT NULL DEFAULT FALSE, created_timestamp TIMESTAMP WITH TIME ZONE, last_payment_sent_timestamp TIMESTAMP WITH TIME ZONE, last_payment_received_timestamp TIMESTAMP WITH TIME ZONE, last_connected_timestamp TIMESTAMP WITH TIME ZONE, closed_timestamp TIMESTAMP WITH TIME ZONE)")
+          statement.executeUpdate("CREATE TABLE local.htlc_infos (channel_id TEXT NOT NULL, commitment_number BIGINT NOT NULL, payment_hash TEXT NOT NULL, cltv_expiry BIGINT NOT NULL, FOREIGN KEY(channel_id) REFERENCES local.channels(channel_id))")
+
+          statement.executeUpdate("CREATE INDEX local_channels_type_idx ON local.channels ((json->>'type'))")
+          statement.executeUpdate("CREATE INDEX local_channels_remote_node_id_idx ON local.channels ((json->'commitments'->'remoteParams'->>'nodeId'))")
+          statement.executeUpdate("CREATE INDEX htlc_infos_idx ON local.htlc_infos(channel_id, commitment_number)")
         case Some(v@2) =>
           logger.warn(s"migrating db $DB_NAME, found version=$v current=$CURRENT_VERSION")
           migration23(statement)
           migration34(statement)
+          migration45(statement)
+          migration56(statement)
         case Some(v@3) =>
           logger.warn(s"migrating db $DB_NAME, found version=$v current=$CURRENT_VERSION")
           migration34(statement)
+          migration45(statement)
+          migration56(statement)
+        case Some(v@4) =>
+          logger.warn(s"migrating db $DB_NAME, found version=$v current=$CURRENT_VERSION")
+          migration45(statement)
+          migration56(statement)
+        case Some(v@5) =>
+          logger.warn(s"migrating db $DB_NAME, found version=$v current=$CURRENT_VERSION")
+          migration56(statement)
         case Some(CURRENT_VERSION) => () // table is up-to-date, nothing to do
         case Some(unknownVersion) => throw new RuntimeException(s"Unknown version of DB $DB_NAME found, version=$unknownVersion")
       }
@@ -81,18 +114,34 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
     }
   }
 
+  /** Sometimes we may want to do a full reset when we update the json format */
+  def resetJsonColumns(connection: Connection, oldTableName: Boolean = false): Unit = {
+    val table = if (oldTableName) "local_channels" else "local.channels"
+    migrateTable(connection, connection,
+      table,
+      s"UPDATE $table SET json=?::JSONB WHERE channel_id=?",
+      (rs, statement) => {
+        val state = stateDataCodec.decode(BitVector(rs.getBytes("data"))).require.value
+        val json = serialization.writePretty(state)
+        statement.setString(1, json)
+        statement.setString(2, state.channelId.toHex)
+      }
+    )(logger)
+  }
+
   override def addOrUpdateChannel(state: HasCommitments): Unit = withMetrics("channels/add-or-update-channel", DbBackends.Postgres) {
     withLock { pg =>
       val data = stateDataCodec.encode(state).require.toByteArray
       using(pg.prepareStatement(
         """
-          | INSERT INTO local_channels (channel_id, data, is_closed)
-          | VALUES (?, ?, FALSE)
+          | INSERT INTO local.channels (channel_id, data, json, is_closed)
+          | VALUES (?, ?, ?::JSONB, FALSE)
           | ON CONFLICT (channel_id)
-          | DO UPDATE SET data = EXCLUDED.data ;
+          | DO UPDATE SET data = EXCLUDED.data, json = EXCLUDED.json ;
           | """.stripMargin)) { statement =>
         statement.setString(1, state.channelId.toHex)
         statement.setBytes(2, data)
+        statement.setString(3, serialization.writePretty(state))
         statement.executeUpdate()
       }
     }
@@ -103,7 +152,7 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
    */
   private def updateChannelMetaTimestampColumn(channelId: ByteVector32, columnName: String): Unit = {
     inTransaction(IsolationLevel.TRANSACTION_READ_UNCOMMITTED) { pg =>
-      using(pg.prepareStatement(s"UPDATE local_channels SET $columnName=? WHERE channel_id=?")) { statement =>
+      using(pg.prepareStatement(s"UPDATE local.channels SET $columnName=? WHERE channel_id=?")) { statement =>
         statement.setTimestamp(1, Timestamp.from(Instant.now()))
         statement.setString(2, channelId.toHex)
         statement.executeUpdate()
@@ -125,17 +174,17 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
 
   override def removeChannel(channelId: ByteVector32): Unit = withMetrics("channels/remove-channel", DbBackends.Postgres) {
     withLock { pg =>
-      using(pg.prepareStatement("DELETE FROM pending_settlement_commands WHERE channel_id=?")) { statement =>
+      using(pg.prepareStatement("DELETE FROM local.pending_settlement_commands WHERE channel_id=?")) { statement =>
         statement.setString(1, channelId.toHex)
         statement.executeUpdate()
       }
 
-      using(pg.prepareStatement("DELETE FROM htlc_infos WHERE channel_id=?")) { statement =>
+      using(pg.prepareStatement("DELETE FROM local.htlc_infos WHERE channel_id=?")) { statement =>
         statement.setString(1, channelId.toHex)
         statement.executeUpdate()
       }
 
-      using(pg.prepareStatement("UPDATE local_channels SET is_closed=TRUE WHERE channel_id=?")) { statement =>
+      using(pg.prepareStatement("UPDATE local.channels SET is_closed=TRUE WHERE channel_id=?")) { statement =>
         statement.setString(1, channelId.toHex)
         statement.executeUpdate()
       }
@@ -145,7 +194,7 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
   override def listLocalChannels(): Seq[HasCommitments] = withMetrics("channels/list-local-channels", DbBackends.Postgres) {
     withLock { pg =>
       using(pg.createStatement) { statement =>
-        statement.executeQuery("SELECT data FROM local_channels WHERE is_closed=FALSE")
+        statement.executeQuery("SELECT data FROM local.channels WHERE is_closed=FALSE")
           .mapCodec(stateDataCodec).toSeq
       }
     }
@@ -153,7 +202,7 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
 
   override def addHtlcInfo(channelId: ByteVector32, commitmentNumber: Long, paymentHash: ByteVector32, cltvExpiry: CltvExpiry): Unit = withMetrics("channels/add-htlc-info", DbBackends.Postgres) {
     withLock { pg =>
-      using(pg.prepareStatement("INSERT INTO htlc_infos VALUES (?, ?, ?, ?)")) { statement =>
+      using(pg.prepareStatement("INSERT INTO local.htlc_infos VALUES (?, ?, ?, ?)")) { statement =>
         statement.setString(1, channelId.toHex)
         statement.setLong(2, commitmentNumber)
         statement.setString(3, paymentHash.toHex)
@@ -165,7 +214,7 @@ class PgChannelsDb(implicit ds: DataSource, lock: PgLock) extends ChannelsDb wit
 
   override def listHtlcInfos(channelId: ByteVector32, commitmentNumber: Long): Seq[(ByteVector32, CltvExpiry)] = withMetrics("channels/list-htlc-infos", DbBackends.Postgres) {
     withLock { pg =>
-      using(pg.prepareStatement("SELECT payment_hash, cltv_expiry FROM htlc_infos WHERE channel_id=? AND commitment_number=?")) { statement =>
+      using(pg.prepareStatement("SELECT payment_hash, cltv_expiry FROM local.htlc_infos WHERE channel_id=? AND commitment_number=?")) { statement =>
         statement.setString(1, channelId.toHex)
         statement.setLong(2, commitmentNumber)
         statement.executeQuery

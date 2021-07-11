@@ -43,7 +43,8 @@ class PerformanceIntegrationSpec extends IntegrationSpec {
     val commonPerfTestConfig = ConfigFactory.parseMap(Map(
       "eclair.max-funding-satoshis" -> 100_000_000,
       "eclair.file-backup.enabled" -> false,
-      "eclair.db.sqlite.mode" -> "wal"
+      "eclair.db.sqlite.mode" -> "wal",
+      "eclair.db.sqlite.sync" -> "full",
     ).asJava)
 
     instantiateEclairNode("A", ConfigFactory.parseMap(Map("eclair.node-alias" -> "A", "eclair.server.port" -> 29730).asJava).withFallback(commonPerfTestConfig).withFallback(commonFeatures).withFallback(commonConfig)) // A's channels are private
@@ -92,8 +93,8 @@ class PerformanceIntegrationSpec extends IntegrationSpec {
   }
 
   test("send a large number of htlcs A->B") {
-    val SENDERS_COUNT = 8
-    val PAYMENTS_COUNT = 1_000
+    val SENDERS_COUNT = 16
+    val PAYMENTS_COUNT = 3_000
     val ec = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(SENDERS_COUNT))
     val start = System.currentTimeMillis()
     val futures = (0 until PAYMENTS_COUNT).map(_ => sendPayment()(ec))

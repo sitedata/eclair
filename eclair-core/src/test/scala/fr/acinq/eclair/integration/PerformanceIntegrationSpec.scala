@@ -40,14 +40,19 @@ import scala.jdk.CollectionConverters._
 class PerformanceIntegrationSpec extends IntegrationSpec {
 
   test("start eclair nodes") {
-    instantiateEclairNode("A", ConfigFactory.parseMap(Map("eclair.node-alias" -> "A", "eclair.max-funding-satoshis" -> 100_000_000, "eclair.server.port" -> 29730).asJava).withFallback(commonFeatures).withFallback(commonConfig)) // A's channels are private
-    instantiateEclairNode("B", ConfigFactory.parseMap(Map("eclair.node-alias" -> "B", "eclair.max-funding-satoshis" -> 100_000_000, "eclair.server.port" -> 29731).asJava).withFallback(commonFeatures).withFallback(commonConfig))
+    val commonPerfTestConfig = ConfigFactory.parseMap(Map(
+      "eclair.max-funding-satoshis" -> 100_000_000,
+      "eclair.file-backup.enabled" -> false,
+      "eclair.db.sqlite.mode" -> "wal"
+    ).asJava)
+
+    instantiateEclairNode("A", ConfigFactory.parseMap(Map("eclair.node-alias" -> "A", "eclair.server.port" -> 29730).asJava).withFallback(commonPerfTestConfig).withFallback(commonFeatures).withFallback(commonConfig)) // A's channels are private
+    instantiateEclairNode("B", ConfigFactory.parseMap(Map("eclair.node-alias" -> "B", "eclair.server.port" -> 29731).asJava).withFallback(commonPerfTestConfig).withFallback(commonFeatures).withFallback(commonConfig))
   }
 
   test("connect nodes") {
     // A---B
 
-    val sender = TestProbe()
     val eventListener = TestProbe()
     nodes.values.foreach(_.system.eventStream.subscribe(eventListener.ref, classOf[ChannelStateChanged]))
 

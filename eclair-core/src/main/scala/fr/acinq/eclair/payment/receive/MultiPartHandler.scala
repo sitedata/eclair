@@ -34,6 +34,7 @@ import fr.acinq.eclair.{Features, Logs, MilliSatoshi, NodeParams, randomBytes32}
 import org.slf4j.Logger
 
 import java.util.UUID
+import scala.concurrent.duration.DurationInt
 import scala.util.{Failure, Success, Try}
 
 /**
@@ -156,117 +157,136 @@ object MultiPartHandler {
     final case class WrappedFinalPacket(wrapped: IncomingPacket.FinalPacket) extends Command
     final case class WrappedMppResult(wrapped: MultiPartPaymentFSM.MultiPartPaymentResult) extends Command
     private final case class DoFulfill(preimage: ByteVector32, success: MultiPartPaymentFSM.MultiPartPaymentSucceeded) extends Command
+    private final case object DoStop extends Command
     // @formatter:on
 
-    def apply(nodeParams: NodeParams, parent: ActorRef, register: ActorRef, paymentHash: ByteVector32): Behavior[Command] =
-      Behaviors.withMdc(Logs.mdc(paymentHash_opt = Some(paymentHash))) {
-        Behaviors.receiveMessage {
-          case Init =>
-            val incomingPayment_opt = nodeParams.db.payments.getIncomingPayment(paymentHash)
-            run(nodeParams, parent, register, paymentHash, incomingPayment_opt, handler_opt = None)
+    def apply(nodeParams: NodeParams, parent: ActorRef, register: ActorRef, paymentHash: ByteVector32): Behavior[Command] = {
+      Behaviors.setup { context =>
+        Behaviors.withMdc(Logs.mdc(paymentHash_opt = Some(paymentHash))) {
+          Behaviors.receiveMessage {
+            case Init =>
+              val incomingPayment_opt = nodeParams.db.payments.getIncomingPayment(paymentHash)
+              new IndividualPaymentHandler(nodeParams, parent, register, paymentHash, context).run(incomingPayment_opt, handler_opt = None)
+          }
         }
       }
+    }
 
-    def run(nodeParams: NodeParams, parent: ActorRef, register: ActorRef, paymentHash: ByteVector32, incomingPayment_opt: Option[IncomingPayment], handler_opt: Option[ActorRef]): Behavior[Command] =
-      Behaviors.receive {
-        case (context, WrappedFinalPacket(p)) =>
-          incomingPayment_opt match {
-            case Some(record) => validatePayment(nodeParams, p, record)(context.log) match {
-              case Some(cmdFail) =>
-                Metrics.PaymentFailed.withTag(Tags.Direction, Tags.Directions.Received).withTag(Tags.Failure, Tags.FailureType(cmdFail)).increment()
-                PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.add.channelId, cmdFail)
-                parent ! StopMe(paymentHash, context.self)
-                Behaviors.same
-              case None =>
-                context.log.info("received payment for amount={} totalAmount={}", p.add.amountMsat, p.payload.totalAmount)
-                handler_opt match {
-                  case Some(handler) =>
-                    handler ! MultiPartPaymentFSM.HtlcPart(p.payload.totalAmount, p.add)
-                    Behaviors.same
-                  case None =>
-                    val handler = context.actorOf(MultiPartPaymentFSM.props(nodeParams, p.add.paymentHash, p.payload.totalAmount, context.messageAdapter[MultiPartPaymentFSM.MultiPartPaymentResult](WrappedMppResult).toClassic))
-                    handler ! MultiPartPaymentFSM.HtlcPart(p.payload.totalAmount, p.add)
-                    run(nodeParams, parent, register, paymentHash, incomingPayment_opt, handler_opt = Some(handler))
-                }
+  }
+
+  class IndividualPaymentHandler private(nodeParams: NodeParams,
+                                         parent: ActorRef,
+                                         register: ActorRef,
+                                         paymentHash: ByteVector32,
+                                         context: typed.scaladsl.ActorContext[IndividualPaymentHandler.Command]) {
+
+    import IndividualPaymentHandler._
+
+    def run(incomingPayment_opt: Option[IncomingPayment], handler_opt: Option[ActorRef]): Behavior[Command] = {
+        Behaviors.receiveMessage {
+          case WrappedFinalPacket(p) =>
+            incomingPayment_opt match {
+              case Some(record) => validatePayment(nodeParams, p, record)(context.log) match {
+                case Some(cmdFail) =>
+                  Metrics.PaymentFailed.withTag(Tags.Direction, Tags.Directions.Received).withTag(Tags.Failure, Tags.FailureType(cmdFail)).increment()
+                  PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.add.channelId, cmdFail)
+                  stopping
+                case None =>
+                  context.log.info("received payment for amount={} totalAmount={}", p.add.amountMsat, p.payload.totalAmount)
+                  handler_opt match {
+                    case Some(handler) =>
+                      handler ! MultiPartPaymentFSM.HtlcPart(p.payload.totalAmount, p.add)
+                      Behaviors.same
+                    case None =>
+                      val handler = context.actorOf(MultiPartPaymentFSM.props(nodeParams, p.add.paymentHash, p.payload.totalAmount, context.messageAdapter[MultiPartPaymentFSM.MultiPartPaymentResult](WrappedMppResult).toClassic))
+                      handler ! MultiPartPaymentFSM.HtlcPart(p.payload.totalAmount, p.add)
+                      run(incomingPayment_opt, handler_opt = Some(handler))
+                  }
+              }
+              case None => p.payload.paymentPreimage match {
+                case Some(paymentPreimage) if nodeParams.features.hasFeature(Features.KeySend) =>
+                  val amount = Some(p.payload.totalAmount)
+                  val paymentHash = Crypto.sha256(paymentPreimage)
+                  val desc = "Donation"
+                  val features = if (nodeParams.features.hasFeature(Features.BasicMultiPartPayment)) {
+                    PaymentRequestFeatures(Features.BasicMultiPartPayment.optional, Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
+                  } else {
+                    PaymentRequestFeatures(Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
+                  }
+                  // Insert a fake invoice and then restart the incoming payment handler
+                  val paymentRequest = PaymentRequest(nodeParams.chainHash, amount, paymentHash, nodeParams.privateKey, desc, nodeParams.minFinalExpiryDelta, paymentSecret = p.payload.paymentSecret, features = features)
+                  context.log.debug("generated fake payment request={} from amount={} (KeySend)", PaymentRequest.write(paymentRequest), amount)
+                  nodeParams.db.payments.addIncomingPayment(paymentRequest, paymentPreimage, paymentType = PaymentType.KeySend)
+                  context.self ! WrappedFinalPacket(p)
+                  run(nodeParams.db.payments.getIncomingPayment(paymentHash), handler_opt)
+                case _ =>
+                  Metrics.PaymentFailed.withTag(Tags.Direction, Tags.Directions.Received).withTag(Tags.Failure, "InvoiceNotFound").increment()
+                  val cmdFail = CMD_FAIL_HTLC(p.add.id, Right(IncorrectOrUnknownPaymentDetails(p.payload.totalAmount, nodeParams.currentBlockHeight)), commit = true)
+                  PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.add.channelId, cmdFail)
+                  stopping
+              }
             }
-            case None => p.payload.paymentPreimage match {
-              case Some(paymentPreimage) if nodeParams.features.hasFeature(Features.KeySend) =>
-                val amount = Some(p.payload.totalAmount)
-                val paymentHash = Crypto.sha256(paymentPreimage)
-                val desc = "Donation"
-                val features = if (nodeParams.features.hasFeature(Features.BasicMultiPartPayment)) {
-                  PaymentRequestFeatures(Features.BasicMultiPartPayment.optional, Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
-                } else {
-                  PaymentRequestFeatures(Features.PaymentSecret.mandatory, Features.VariableLengthOnion.mandatory)
-                }
-                // Insert a fake invoice and then restart the incoming payment handler
-                val paymentRequest = PaymentRequest(nodeParams.chainHash, amount, paymentHash, nodeParams.privateKey, desc, nodeParams.minFinalExpiryDelta, paymentSecret = p.payload.paymentSecret, features = features)
-                context.log.debug("generated fake payment request={} from amount={} (KeySend)", PaymentRequest.write(paymentRequest), amount)
-                nodeParams.db.payments.addIncomingPayment(paymentRequest, paymentPreimage, paymentType = PaymentType.KeySend)
-                context.self ! WrappedFinalPacket(p)
-                run(nodeParams, parent, register, paymentHash, nodeParams.db.payments.getIncomingPayment(paymentHash), handler_opt)
-              case _ =>
-                Metrics.PaymentFailed.withTag(Tags.Direction, Tags.Directions.Received).withTag(Tags.Failure, "InvoiceNotFound").increment()
-                val cmdFail = CMD_FAIL_HTLC(p.add.id, Right(IncorrectOrUnknownPaymentDetails(p.payload.totalAmount, nodeParams.currentBlockHeight)), commit = true)
-                PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.add.channelId, cmdFail)
-                parent ! StopMe(paymentHash, context.self)
-                Behaviors.same
-            }
-          }
 
-        case (context, WrappedMppResult(MultiPartPaymentFSM.MultiPartPaymentFailed(paymentHash, failure, parts))) =>
-          Metrics.PaymentFailed.withTag(Tags.Direction, Tags.Directions.Received).withTag(Tags.Failure, failure.getClass.getSimpleName).increment()
-          context.log.warn("payment with paidAmount={} failed ({})", parts.map(_.amount).sum, failure)
-          handler_opt.foreach(_ ! PoisonPill)
-          parts.collect {
-            case p: MultiPartPaymentFSM.HtlcPart => PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.htlc.channelId, CMD_FAIL_HTLC(p.htlc.id, Right(failure), commit = true))
-          }
-          parent ! StopMe(paymentHash, context.self)
-          Behaviors.same
-
-        case (context, WrappedMppResult(s@MultiPartPaymentFSM.MultiPartPaymentSucceeded(paymentHash, parts))) =>
-          context.log.info("received complete payment for amount={}", parts.map(_.amount).sum)
-          (handler_opt, incomingPayment_opt) match {
-            case (Some(handler), Some(incomingPayment)) =>
-              handler ! PoisonPill
-              context.self ! DoFulfill(incomingPayment.paymentPreimage, s)
-            case _ =>
-              parent ! StopMe(paymentHash, context.self)
-          }
-          Behaviors.same
-
-        case (context, WrappedMppResult(MultiPartPaymentFSM.ExtraPaymentReceived(paymentHash, p, failure))) =>
-          failure match {
-            case Some(failure) => p match {
+          case WrappedMppResult(MultiPartPaymentFSM.MultiPartPaymentFailed(paymentHash, failure, parts)) =>
+            Metrics.PaymentFailed.withTag(Tags.Direction, Tags.Directions.Received).withTag(Tags.Failure, failure.getClass.getSimpleName).increment()
+            context.log.warn("payment with paidAmount={} failed ({})", parts.map(_.amount).sum, failure)
+            handler_opt.foreach(_ ! PoisonPill)
+            parts.collect {
               case p: MultiPartPaymentFSM.HtlcPart => PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.htlc.channelId, CMD_FAIL_HTLC(p.htlc.id, Right(failure), commit = true))
             }
-            case None => p match {
-              // NB: this case shouldn't happen unless the sender violated the spec, so it's ok that we take a slightly more
-              // expensive code path by fetching the preimage from DB.
-              case p: MultiPartPaymentFSM.HtlcPart => nodeParams.db.payments.getIncomingPayment(paymentHash).foreach(record => {
-                PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.htlc.channelId, CMD_FULFILL_HTLC(p.htlc.id, record.paymentPreimage, commit = true))
-                val received = PaymentReceived(paymentHash, PaymentReceived.PartialPayment(p.amount, p.htlc.channelId) :: Nil)
-                nodeParams.db.payments.receiveIncomingPayment(paymentHash, p.amount, received.timestamp)
-                context.system.eventStream ! EventStream.Publish(received)
-              })
-            }
-          }
-          Behaviors.same
+            stopping
 
-        case (context, DoFulfill(preimage, MultiPartPaymentFSM.MultiPartPaymentSucceeded(paymentHash, parts))) =>
-          context.log.info("fulfilling payment for amount={}", parts.map(_.amount).sum)
-          val received = PaymentReceived(paymentHash, parts.map {
-            case p: MultiPartPaymentFSM.HtlcPart => PaymentReceived.PartialPayment(p.amount, p.htlc.channelId)
-          })
-          nodeParams.db.payments.receiveIncomingPayment(paymentHash, received.amount, received.timestamp)
-          parts.collect {
-            case p: MultiPartPaymentFSM.HtlcPart => PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.htlc.channelId, CMD_FULFILL_HTLC(p.htlc.id, preimage, commit = true))
-          }
-          //postFulfill(received)
-          context.system.eventStream ! EventStream.Publish(received)
-          parent ! StopMe(paymentHash, context.self)
-          Behaviors.same
+          case WrappedMppResult(MultiPartPaymentFSM.MultiPartPaymentSucceeded(paymentHash, parts)) =>
+            context.log.info("received complete payment for amount={}", parts.map(_.amount).sum)
+            (handler_opt, incomingPayment_opt) match {
+              case (Some(handler), Some(incomingPayment)) =>
+                handler ! PoisonPill
+                context.log.info("fulfilling payment for amount={}", parts.map(_.amount).sum)
+                val received = PaymentReceived(paymentHash, parts.map {
+                  case p: MultiPartPaymentFSM.HtlcPart => PaymentReceived.PartialPayment(p.amount, p.htlc.channelId)
+                })
+                nodeParams.db.payments.receiveIncomingPayment(paymentHash, received.amount, received.timestamp)
+                parts.collect {
+                  case p: MultiPartPaymentFSM.HtlcPart => PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.htlc.channelId, CMD_FULFILL_HTLC(p.htlc.id, incomingPayment.paymentPreimage, commit = true))
+                }
+                //postFulfill(received)
+                context.system.eventStream ! EventStream.Publish(received)
+                stopping
+              case _ => ()
+            }
+            stopping
+
+          case WrappedMppResult(MultiPartPaymentFSM.ExtraPaymentReceived(paymentHash, p, failure)) =>
+            failure match {
+              case Some(failure) => p match {
+                case p: MultiPartPaymentFSM.HtlcPart => PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.htlc.channelId, CMD_FAIL_HTLC(p.htlc.id, Right(failure), commit = true))
+              }
+              case None => p match {
+                // NB: this case shouldn't happen unless the sender violated the spec, so it's ok that we take a slightly more
+                // expensive code path by fetching the preimage from DB.
+                case p: MultiPartPaymentFSM.HtlcPart => nodeParams.db.payments.getIncomingPayment(paymentHash).foreach(record => {
+                  PendingCommandsDb.safeSend(register, nodeParams.db.pendingCommands, p.htlc.channelId, CMD_FULFILL_HTLC(p.htlc.id, record.paymentPreimage, commit = true))
+                  val received = PaymentReceived(paymentHash, PaymentReceived.PartialPayment(p.amount, p.htlc.channelId) :: Nil)
+                  nodeParams.db.payments.receiveIncomingPayment(paymentHash, p.amount, received.timestamp)
+                  context.system.eventStream ! EventStream.Publish(received)
+                })
+              }
+            }
+            Behaviors.same
+
+          case DoStop =>
+            context.log.info("stopping...")
+            parent ! StopMe(paymentHash, context.self)
+            Behaviors.same
       }
+    }
+
+    def stopping: Behavior[Command] = {
+      Behaviors.withTimers { timers =>
+        timers.startSingleTimer(DoStop, 5 second)
+        Behaviors.same
+      }
+    }
 
     private def validatePaymentStatus(payment: IncomingPacket.FinalPacket, record: IncomingPayment)(implicit log: Logger): Boolean = {
       if (record.status.isInstanceOf[IncomingPaymentStatus.Received]) {

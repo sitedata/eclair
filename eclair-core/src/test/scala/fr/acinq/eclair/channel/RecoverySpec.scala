@@ -91,6 +91,7 @@ class RecoverySpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with Sta
       val script = Script.parse(bobCommitTx.txIn.get(0).witness.last).toList
       script match {
         case OP_2.INSTANCE :: op1 :: op2 :: OP_2.INSTANCE :: OP_CHECKMULTISIG.INSTANCE :: Nil if op1.isPush(33) && op2.isPush(33) => (op1.asInstanceOf[OP_PUSHDATA].data, op2.asInstanceOf[OP_PUSHDATA].data)
+        case _ => throw new IllegalArgumentException("invalid witness stack")
       }
     }
     //val OP_2.INSTANCE :: new OP_PUSHDATA(pub1) :: new OP_PUSHDATA(pub2) :: OP_2.INSTANCE :: OP_CHECKMULTISIG.INSTANCE :: Nil = Script.parse(bobCommitTx.txIn(0).witness.stack.last)
@@ -99,6 +100,7 @@ class RecoverySpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with Sta
 
     val pubKeyHash = Script.parse(ourOutput.publicKeyScript).toList match {
       case OP_0.INSTANCE :: op :: Nil if op.isPush(20) => op.asInstanceOf[OP_PUSHDATA].data
+      case _ => throw new IllegalArgumentException("invalid publicKey script")
     }
 
     val keyManager = TestConstants.Alice.nodeParams.channelKeyManager

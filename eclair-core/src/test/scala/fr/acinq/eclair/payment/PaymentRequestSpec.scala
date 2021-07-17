@@ -19,7 +19,6 @@ package fr.acinq.eclair.payment
 import fr.acinq.bitcoin.crypto.Pack
 import fr.acinq.bitcoin.{PrivateKey, PublicKey}
 import fr.acinq.bitcoin.{Block, BtcDouble, ByteVector32, Crypto, MilliBtcDouble, Protocol, SatoshiLong}
-import fr.acinq.bitcoin.{ByteVector => ByteVectorAcinq}
 import fr.acinq.eclair.Features.{PaymentSecret, _}
 import fr.acinq.eclair.payment.PaymentRequest._
 import fr.acinq.eclair.{CltvExpiryDelta, FeatureSupport, Features, MilliSatoshiLong, ShortChannelId, TestConstants, ToMilliSatoshiConversion}
@@ -29,7 +28,6 @@ import org.scalatest.funsuite.AnyFunSuite
 import scodec.DecodeResult
 import scodec.bits._
 import scodec.codecs.bits
-
 
 import java.nio.ByteOrder
 
@@ -102,7 +100,7 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
     assert(pr.description == Left("Please consider supporting this project"))
-    assert(pr.fallbackAddress === None)
+    assert(pr.fallbackAddress() === None)
     assert(pr.tags.size === 2)
     assert(PaymentRequest.write(pr.sign(priv)) == ref)
   }
@@ -116,7 +114,7 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
     assert(pr.description == Left("1 cup coffee"))
-    assert(pr.fallbackAddress === None)
+    assert(pr.fallbackAddress() === None)
     assert(pr.tags.size === 3)
     assert(PaymentRequest.write(pr.sign(priv)) == ref)
   }
@@ -129,8 +127,8 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.paymentHash.toHex == "0001020304050607080900010203040506070809000102030405060708090102")
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
-    assert(pr.description == Right(new ByteVectorAcinq("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes).sha256()))
-    assert(pr.fallbackAddress === None)
+    assert(pr.description == Right(new ByteVector32(Crypto.sha256("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes))))
+    assert(pr.fallbackAddress() === None)
     assert(pr.tags.size === 2)
     assert(PaymentRequest.write(pr.sign(priv)) == ref)
   }
@@ -143,8 +141,8 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.paymentHash.toHex == "0001020304050607080900010203040506070809000102030405060708090102")
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
-    assert(pr.description == Right(new ByteVectorAcinq("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes).sha256()))
-    assert(pr.fallbackAddress === Some("mk2QpYatsKicvFVuTAQLBryyccRXMUaGHP"))
+    assert(pr.description == Right(new ByteVector32(Crypto.sha256(ByteVector.view("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes)))))
+    assert(pr.fallbackAddress() === Some("mk2QpYatsKicvFVuTAQLBryyccRXMUaGHP"))
     assert(pr.tags.size == 3)
     assert(PaymentRequest.write(pr.sign(priv)) == ref)
   }
@@ -157,8 +155,8 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.paymentHash.toHex == "0001020304050607080900010203040506070809000102030405060708090102")
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
-    assert(pr.description == Right(new ByteVectorAcinq("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes).sha256()))
-    assert(pr.fallbackAddress === Some("1RustyRX2oai4EYYDpQGWvEL62BBGqN9T"))
+    assert(pr.description == Right(new ByteVector32(Crypto.sha256(ByteVector.view("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes)))))
+    assert(pr.fallbackAddress() === Some("1RustyRX2oai4EYYDpQGWvEL62BBGqN9T"))
     assert(pr.routingInfo === List(List(
       ExtraHop(PublicKey.fromHex("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255"), ShortChannelId(72623859790382856L), 1 msat, 20, CltvExpiryDelta(3)),
       ExtraHop(PublicKey.fromHex("039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255"), ShortChannelId(217304205466536202L), 2 msat, 30, CltvExpiryDelta(4))
@@ -177,8 +175,8 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.paymentHash.toHex == "0001020304050607080900010203040506070809000102030405060708090102")
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
-    assert(pr.description == Right(new ByteVectorAcinq("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes).sha256()))
-    assert(pr.fallbackAddress === Some("3EktnHQD7RiAE6uzMj2ZifT9YgRrkSgzQX"))
+    assert(pr.description == Right(new ByteVector32(Crypto.sha256(ByteVector.view("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes)))))
+    assert(pr.fallbackAddress() === Some("3EktnHQD7RiAE6uzMj2ZifT9YgRrkSgzQX"))
     assert(pr.tags.size == 3)
     assert(PaymentRequest.write(pr.sign(priv)) == ref)
   }
@@ -191,8 +189,8 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.paymentHash.toHex == "0001020304050607080900010203040506070809000102030405060708090102")
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
-    assert(pr.description == Right(new ByteVectorAcinq("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes).sha256()))
-    assert(pr.fallbackAddress === Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"))
+    assert(pr.description == Right(new ByteVector32(Crypto.sha256("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes))))
+    assert(pr.fallbackAddress() === Some("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"))
     assert(pr.tags.size == 3)
     assert(PaymentRequest.write(pr.sign(priv)) == ref)
   }
@@ -205,8 +203,8 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.paymentHash.toHex == "0001020304050607080900010203040506070809000102030405060708090102")
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
-    assert(pr.description == Right(new ByteVectorAcinq("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes).sha256()))
-    assert(pr.fallbackAddress === Some("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"))
+    assert(pr.description == Right(new ByteVector32(Crypto.sha256("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes))))
+    assert(pr.fallbackAddress() === Some("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"))
     assert(pr.tags.size == 3)
     assert(pr.features.bitmask.isEmpty)
     assert(!pr.features.allowMultiPart)
@@ -221,8 +219,8 @@ class PaymentRequestSpec extends AnyFunSuite {
     assert(pr.paymentHash.toHex == "0001020304050607080900010203040506070809000102030405060708090102")
     assert(pr.timestamp == 1496314658L)
     assert(pr.nodeId == PublicKey.fromHex("03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"))
-    assert(pr.description == Right(new ByteVectorAcinq("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes).sha256()))
-    assert(pr.fallbackAddress === Some("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"))
+    assert(pr.description == Right(new ByteVector32(Crypto.sha256(ByteVector.view("One piece of chocolate cake, one icecream cone, one pickle, one slice of swiss cheese, one slice of salami, one lollypop, one piece of cherry pie, one sausage, one cupcake, and one slice of watermelon".getBytes)))))
+    assert(pr.fallbackAddress() === Some("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"))
     assert(pr.minFinalCltvExpiryDelta === Some(CltvExpiryDelta(12)))
     assert(pr.tags.size == 4)
     assert(pr.features.bitmask.isEmpty)

@@ -34,7 +34,7 @@ import shapeless.{::, HNil}
 
 import java.util.UUID
 import scala.concurrent.duration._
-import scala.collection.JavaConverters.{iterableAsScalaIterableConverter, seqAsJavaListConverter}
+import scala.jdk.CollectionConverters._
 
 /**
  * Those codecs are here solely for backward compatibility reasons.

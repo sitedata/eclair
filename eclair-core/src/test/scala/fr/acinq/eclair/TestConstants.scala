@@ -173,7 +173,7 @@ object TestConstants {
     def channelParams: LocalParams = Peer.makeChannelParams(
       nodeParams,
       nodeParams.features,
-      Script.write(Script.pay2wpkh(randomKey().publicKey)),
+      ByteVector.view(Script.write(Script.pay2wpkh(randomKey().publicKey))),
       None,
       isFunder = true,
       fundingSatoshis
@@ -280,7 +280,7 @@ object TestConstants {
     def channelParams: LocalParams = Peer.makeChannelParams(
       nodeParams,
       nodeParams.features,
-      Script.write(Script.pay2wpkh(randomKey().publicKey)),
+      ByteVector.view(Script.write(Script.pay2wpkh(randomKey().publicKey))),
       None,
       isFunder = false,
       fundingSatoshis).copy(

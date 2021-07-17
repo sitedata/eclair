@@ -17,7 +17,7 @@ import scodec.bits._
 import scodec.{Attempt, Codec, DecodeResult}
 
 import java.util.UUID
-import scala.collection.JavaConverters.seqAsJavaListConverter
+import scala.jdk.CollectionConverters._
 import scala.util.Random
 
 class ChannelCodecs1Spec extends AnyFunSuite {
@@ -72,7 +72,7 @@ class ChannelCodecs1Spec extends AnyFunSuite {
       walletStaticPaymentBasepoint = None,
       isFunder = Random.nextBoolean(),
       initFeatures = Features(randomBytes(256)))
-    val o1 = o.copy(walletStaticPaymentBasepoint = Some(PrivateKey(randomBytes32()).publicKey))
+    val o1 = o.copy(walletStaticPaymentBasepoint = Some(new PrivateKey(randomBytes32()).publicKey))
 
     roundtrip(o, localParamsCodec(ChannelVersion.ZEROES))
     roundtrip(o1, localParamsCodec(ChannelVersion.STATIC_REMOTEKEY))

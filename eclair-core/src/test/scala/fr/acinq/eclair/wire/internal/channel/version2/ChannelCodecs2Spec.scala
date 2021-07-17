@@ -24,13 +24,14 @@ class ChannelCodecs2Spec extends AnyFunSuite {
   }
 
   test("remove signatures from commitment txs") {
+    import scala.jdk.CollectionConverters._
     val commitments = stateDataCodec.decode(dataNormal.bits).require.value.commitments
-    commitments.localCommit.commitTxAndRemoteSig.commitTx.tx.txIn.foreach(txIn => assert(txIn.witness.isNull))
+    commitments.localCommit.commitTxAndRemoteSig.commitTx.tx.txIn.asScala.foreach(txIn => assert(txIn.witness.isNull))
     assert(commitments.localCommit.htlcTxsAndRemoteSigs.nonEmpty)
     commitments.localCommit.htlcTxsAndRemoteSigs.foreach {
       case HtlcTxAndRemoteSig(htlcTx, remoteSig) =>
         assert(remoteSig !== ByteVector64.Zeroes)
-        htlcTx.tx.txIn.foreach(txIn => assert(txIn.witness.isNull))
+        htlcTx.tx.txIn.asScala.foreach(txIn => assert(txIn.witness.isNull))
     }
   }
 

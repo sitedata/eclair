@@ -11,7 +11,7 @@ case class PimpSatoshi(private val underlying: Long) extends BtcAmount with Orde
   // @formatter:off
   def +(other: PimpSatoshi) = PimpSatoshi(underlying + other.underlying)
   def -(other: PimpSatoshi) = PimpSatoshi(underlying - other.underlying)
-  def unary_-() = PimpSatoshi(-underlying)
+  def unary_- = PimpSatoshi(-underlying)
   def *(m: Long) = PimpSatoshi(underlying * m)
   def *(m: Double) = PimpSatoshi((underlying * m).toLong)
   def /(d: Long) = PimpSatoshi(underlying / d)
@@ -42,7 +42,7 @@ case class MilliBtc(private val underlying: BigDecimal) extends BtcAmount with O
   // @formatter:off
   def +(other: MilliBtc) = MilliBtc(underlying + other.underlying)
   def -(other: MilliBtc) = MilliBtc(underlying - other.underlying)
-  def unary_-() = MilliBtc(-underlying)
+  def unary_ = MilliBtc(-underlying)
   def *(m: Long) = MilliBtc(underlying * m)
   def *(m: Double) = MilliBtc(underlying * m)
   def /(d: Long) = MilliBtc(underlying / d)
@@ -71,7 +71,7 @@ case class Btc(private val underlying: BigDecimal) extends BtcAmount with Ordere
   // @formatter:off
   def +(other: Btc) = Btc(underlying + other.underlying)
   def -(other: Btc) = Btc(underlying - other.underlying)
-  def unary_-() = Btc(-underlying)
+  def unary_- = Btc(-underlying)
   def *(m: Long) = Btc(underlying * m)
   def *(m: Double) = Btc(underlying * m)
   def /(d: Long) = Btc(underlying / d)

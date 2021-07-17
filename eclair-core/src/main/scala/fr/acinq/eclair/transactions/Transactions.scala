@@ -33,7 +33,7 @@ import KotlinUtils._
 import scodec.bits.ByteVector
 
 import java.nio.ByteOrder
-import scala.collection.JavaConverters.{mapAsJavaMapConverter, seqAsJavaListConverter}
+import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 /**

@@ -88,7 +88,7 @@ class PaymentLifecycle(nodeParams: NodeParams, cfg: SendPaymentConfig, router: A
   }
 
   when(WAITING_FOR_PAYMENT_COMPLETE) {
-    case Event(RES_SUCCESS(_: CMD_ADD_HTLC, _), _) => stay
+    case Event(RES_SUCCESS(_: CMD_ADD_HTLC, _), _) => stay()
 
     case Event(RES_ADD_FAILED(_, t: ChannelException, _), d: WaitingForComplete) =>
       handleLocalFail(d, t, isFatal = false)
@@ -114,7 +114,11 @@ class PaymentLifecycle(nodeParams: NodeParams, cfg: SendPaymentConfig, router: A
         case HtlcResult.OnChainFail(cause) =>
           // if the outgoing htlc is being resolved on chain, we treat it like a local error but we cannot retry
           handleLocalFail(d, cause, isFatal = true)
-        case HtlcResult.Disconnected(_) =>
+        case HtlcResult.ChannelFailureBeforeSigned =>
+          // the channel that we wanted to use for the outgoing htlc has failed before that htlc was signed, we may
+          // retry with another channel
+          handleLocalFail(d, ChannelFailureException, isFatal = false)
+        case HtlcResult.DisconnectedBeforeSigned(_) =>
           // a disconnection occured before the outgoing htlc got signed
           // again, we consider it a local error and treat is as such
           handleLocalFail(d, DisconnectedException, isFatal = false)
@@ -122,7 +126,7 @@ class PaymentLifecycle(nodeParams: NodeParams, cfg: SendPaymentConfig, router: A
   }
 
   whenUnhandled {
-    case Event(_: TransportHandler.ReadAck, _) => stay // ignored, router replies with this when we forward a channel_update
+    case Event(_: TransportHandler.ReadAck, _) => stay() // ignored, router replies with this when we forward a channel_update
   }
 
   private def retry(failure: PaymentFailure, data: WaitingForComplete): FSM.State[PaymentLifecycle.State, PaymentLifecycle.Data] = {
@@ -347,6 +351,7 @@ object PaymentLifecycle {
 
   /** custom exceptions to handle corner cases */
   case object UpdateMalformedException extends RuntimeException("first hop returned an UpdateFailMalformedHtlc message")
+  case object ChannelFailureException extends RuntimeException("a channel failure occured with the first hop")
   case object DisconnectedException extends RuntimeException("a disconnection occurred with the first hop")
   // @formatter:on
 

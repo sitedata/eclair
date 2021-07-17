@@ -22,7 +22,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import scodec.bits._
 import KotlinUtils._
 
-import scala.collection.JavaConverters.seqAsJavaListConverter
+import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 /**

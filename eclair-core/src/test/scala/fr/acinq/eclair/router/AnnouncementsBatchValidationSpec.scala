@@ -33,7 +33,7 @@ import fr.acinq.eclair.KotlinUtils._
 import org.json4s.JsonAST.JString
 import org.scalatest.funsuite.AnyFunSuite
 
-import scala.collection.JavaConverters.seqAsJavaListConverter
+import scala.jdk.CollectionConverters._
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext}
 

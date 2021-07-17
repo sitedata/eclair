@@ -19,7 +19,7 @@ package fr.acinq.eclair.crypto.keymanager
 import java.io.File
 import java.nio.file.Files
 import fr.acinq.bitcoin.{PrivateKey, PublicKey}
-import fr.acinq.bitcoin.DeterministicWallet.KeyPath
+import fr.acinq.bitcoin.KeyPath
 import fr.acinq.bitcoin.{Block, ByteVector32, DeterministicWallet}
 import fr.acinq.eclair.Setup.Seeds
 import fr.acinq.eclair.channel.ChannelConfig
@@ -28,8 +28,7 @@ import fr.acinq.eclair.{NodeParams, TestConstants, TestUtils}
 import org.scalatest.funsuite.AnyFunSuite
 import scodec.bits._
 
-import scala.collection.JavaConverters.seqAsJavaListConverter
-
+import scala.jdk.CollectionConverters._
 
 class LocalChannelKeyManagerSpec extends AnyFunSuite {
   test("generate the same secrets from the same seed") {

@@ -33,7 +33,7 @@ import scodec.codecs._
 import scodec.{Attempt, Codec}
 import shapeless.{::, HNil}
 
-import scala.collection.JavaConverters.{iterableAsScalaIterableConverter, seqAsJavaListConverter}
+import scala.jdk.CollectionConverters._
 
 private[channel] object ChannelCodecs1 {
 

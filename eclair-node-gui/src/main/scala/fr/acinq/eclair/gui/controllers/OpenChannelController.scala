@@ -134,7 +134,7 @@ class OpenChannelController(val handlers: Handlers, val stage: Stage) extends Lo
     }
   }
 
-  private def clearErrors() {
+  private def clearErrors(): Unit = {
     hostError.setText("")
     fundingSatError.setText("")
     pushMsatError.setText("")

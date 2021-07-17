@@ -1,7 +1,7 @@
 package fr.acinq.eclair
 
 import fr.acinq.bitcoin._
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 object KotlinUtils {
 
@@ -15,8 +15,8 @@ object KotlinUtils {
     override def fromInt(x: Int): Satoshi = new Satoshi(x)
     override def toInt(x: Satoshi): Int = x.toLong.toInt
     override def toLong(x: Satoshi): Long = x.toLong
-    override def toFloat(x: Satoshi): Float = x.toLong
-    override def toDouble(x: Satoshi): Double = x.toLong
+    override def toFloat(x: Satoshi): Float = x.toLong.toFloat
+    override def toDouble(x: Satoshi): Double = x.toLong.toDouble
     override def compare(x: Satoshi, y: Satoshi): Int = x.compareTo(y)
     override def parseString(str: String): Option[Satoshi] = ???
     // @formatter:on
@@ -32,8 +32,8 @@ object KotlinUtils {
     override def fromInt(x: Int): MilliBtc = MilliBtc(x)
     override def toInt(x: MilliBtc): Int = x.toLong.toInt
     override def toLong(x: MilliBtc): Long = x.toLong
-    override def toFloat(x: MilliBtc): Float = x.toLong
-    override def toDouble(x: MilliBtc): Double = x.toLong
+    override def toFloat(x: MilliBtc): Float = x.toLong.toFloat
+    override def toDouble(x: MilliBtc): Double = x.toLong.toDouble
     override def compare(x: MilliBtc, y: MilliBtc): Int = x.compareTo(y)
     override def parseString(str: String): Option[MilliBtc] = ???
     // @formatter:on

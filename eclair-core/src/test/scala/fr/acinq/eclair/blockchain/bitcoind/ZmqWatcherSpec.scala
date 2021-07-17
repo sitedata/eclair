@@ -168,21 +168,21 @@ class ZmqWatcherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoind
       watcher ! WatchFundingConfirmed(listener.ref, tx.txid, 1)
       watcher ! WatchFundingDeeplyBuried(listener.ref, tx.txid, 4)
       watcher ! WatchFundingDeeplyBuried(listener.ref, tx.txid, 4) // setting the watch multiple times should be a no-op
-      listener.expectNoMsg(1 second)
+      listener.expectNoMessage(1 second)
 
       watcher ! ListWatches(listener.ref)
       assert(listener.expectMsgType[Set[Watch[_]]].size === 2)
 
       generateBlocks(1)
       assert(listener.expectMsgType[WatchFundingConfirmedTriggered].tx.txid === tx.txid)
-      listener.expectNoMsg(1 second)
+      listener.expectNoMessage(1 second)
 
       watcher ! ListWatches(listener.ref)
       assert(listener.expectMsgType[Set[Watch[_]]].size === 1)
 
       generateBlocks(3)
       assert(listener.expectMsgType[WatchFundingDeeplyBuriedTriggered].tx.txid === tx.txid)
-      listener.expectNoMsg(1 second)
+      listener.expectNoMessage(1 second)
 
       watcher ! ListWatches(listener.ref)
       assert(listener.expectMsgType[Set[Watch[_]]].isEmpty)
@@ -194,7 +194,7 @@ class ZmqWatcherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoind
       assert(listener.expectMsgType[WatchFundingConfirmedTriggered].tx.txid === tx.txid)
       watcher ! WatchFundingDeeplyBuried(listener.ref, tx.txid, 4)
       assert(listener.expectMsgType[WatchFundingDeeplyBuriedTriggered].tx.txid === tx.txid)
-      listener.expectNoMsg(1 second)
+      listener.expectNoMessage(1 second)
 
       watcher ! ListWatches(listener.ref)
       assert(listener.expectMsgType[Set[Watch[_]]].isEmpty)
@@ -214,7 +214,7 @@ class ZmqWatcherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoind
       val listener = TestProbe()
       watcher ! WatchExternalChannelSpent(listener.ref, tx.txid, outputIndex, ShortChannelId(5))
       watcher ! WatchFundingSpent(listener.ref, tx.txid, outputIndex, Set.empty)
-      listener.expectNoMsg(1 second)
+      listener.expectNoMessage(1 second)
 
       watcher ! ListWatches(listener.ref)
       assert(listener.expectMsgType[Set[Watch[_]]].size === 2)
@@ -243,6 +243,11 @@ class ZmqWatcherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoind
       bitcoinClient.publishTransaction(tx2).pipeTo(probe.ref)
       probe.expectMsg(tx2.txid)
       listener.expectNoMessage(1 second)
+
+      // We must unsubscribe the watcher from ZMQ tx subscriptions, otherwise this test has a race condition because
+      // bitcoind sends us a NewTransaction event for each transaction inside a new block. If these are delayed and are
+      // received after we registered our watch, we will receive the watch-triggered event twice.
+      system.eventStream.unsubscribe(watcher.ref.toClassic, classOf[NewTransaction])
 
       system.eventStream.subscribe(probe.ref, classOf[CurrentBlockCount])
       generateBlocks(1)
@@ -297,10 +302,10 @@ class ZmqWatcherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoind
       bitcoinClient.publishTransaction(tx1).pipeTo(probe.ref)
       probe.expectMsg(tx1.txid)
       generateBlocks(1)
-      probe.expectNoMsg(1 second)
+      probe.expectNoMessage(1 second)
       bitcoinClient.publishTransaction(tx2).pipeTo(probe.ref)
       probe.expectMsgAllOf(tx2.txid, WatchFundingSpentTriggered(tx2))
-      probe.expectNoMsg(1 second)
+      probe.expectNoMessage(1 second)
       generateBlocks(1)
       probe.expectMsg(WatchFundingSpentTriggered(tx2)) // tx2 is confirmed which triggers WatchEventSpent again
       generateBlocks(1)
@@ -343,7 +348,7 @@ class ZmqWatcherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoind
       val actor1 = TestProbe()
       val actor2 = TestProbe()
 
-      val txid = randomBytes32
+      val txid = randomBytes32()
       watcher ! WatchFundingConfirmed(actor1.ref, txid, 2)
       watcher ! WatchFundingConfirmed(actor1.ref, txid, 3)
       watcher ! WatchFundingDeeplyBuried(actor1.ref, txid, 3)

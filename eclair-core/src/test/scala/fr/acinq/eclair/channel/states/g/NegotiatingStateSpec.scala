@@ -18,7 +18,7 @@ package fr.acinq.eclair.channel.states.g
 
 import akka.event.LoggingAdapter
 import akka.testkit.TestProbe
-import fr.acinq.bitcoin.{ByteVector32, ByteVector64, SatoshiLong}
+import fr.acinq.bitcoin.{ByteVector32, ByteVector64, SatoshiLong, Script}
 import fr.acinq.eclair.TestConstants.Bob
 import fr.acinq.eclair.blockchain.bitcoind.ZmqWatcher._
 import fr.acinq.eclair.blockchain.fee.{FeeratePerKw, FeeratesPerKw}
@@ -28,9 +28,8 @@ import fr.acinq.eclair.channel.publish.TxPublisher.{PublishRawTx, PublishTx}
 import fr.acinq.eclair.channel.states.{StateTestsBase, StateTestsTags}
 import fr.acinq.eclair.transactions.Transactions
 import fr.acinq.eclair.wire.protocol.{ClosingSigned, Error, Shutdown}
-import fr.acinq.eclair.{CltvExpiry, MilliSatoshiLong, TestConstants, TestKitBaseClass}
+import fr.acinq.eclair.{CltvExpiry, Features, MilliSatoshiLong, TestConstants, TestKitBaseClass, randomKey}
 import fr.acinq.eclair.KotlinUtils._
-
 import org.scalatest.funsuite.FixtureAnyFunSuiteLike
 import org.scalatest.{Outcome, Tag}
 import scodec.bits.ByteVector
@@ -61,9 +60,13 @@ class NegotiatingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
         bob.feeEstimator.setFeerate(FeeratesPerKw.single(FeeratePerKw(10000 sat)))
       }
       bob ! CMD_CLOSE(sender.ref, None)
-      bob2alice.expectMsgType[Shutdown]
+      val bobShutdown = bob2alice.expectMsgType[Shutdown]
       bob2alice.forward(alice)
-      alice2bob.expectMsgType[Shutdown]
+      val aliceShutdown = alice2bob.expectMsgType[Shutdown]
+      if (test.tags.contains(StateTestsTags.OptionUpfrontShutdownScript)) {
+        assert(bobShutdown.scriptPubKey == bob.stateData.asInstanceOf[DATA_NORMAL].commitments.localParams.defaultFinalScriptPubKey)
+        assert(aliceShutdown.scriptPubKey == alice.stateData.asInstanceOf[DATA_NEGOTIATING].commitments.localParams.defaultFinalScriptPubKey)
+      }
       awaitCond(alice.stateName == NEGOTIATING)
       // NB: at this point, alice has already computed and sent the first ClosingSigned message
       // In order to force a fee negotiation, we will change the current fee before forwarding
@@ -89,7 +92,7 @@ class NegotiatingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
     alice ! add
     val error = ChannelUnavailable(channelId(alice))
     sender.expectMsg(RES_ADD_FAILED(add, error, None))
-    alice2bob.expectNoMsg(200 millis)
+    alice2bob.expectNoMessage(200 millis)
   }
 
   def testClosingSigned(f: FixtureParam): Unit = {
@@ -109,6 +112,12 @@ class NegotiatingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
     awaitCond(alice.stateData.asInstanceOf[DATA_NEGOTIATING].closingTxProposed.last.map(_.localClosingSigned) == initialState.closingTxProposed.last.map(_.localClosingSigned) :+ aliceCloseSig2)
     val Some(closingTx) = alice.stateData.asInstanceOf[DATA_NEGOTIATING].bestUnpublishedClosingTx_opt
     assert(closingTx.tx.txOut.length === 2) // NB: in the anchor outputs case, anchors are removed from the closing tx
+    if (alice.stateData.asInstanceOf[DATA_NEGOTIATING].commitments.channelFeatures.hasFeature(Features.OptionUpfrontShutdownScript)) {
+      // check that the closing tx uses Alice and Bob's default closing scripts
+      val expectedLocalScript = new fr.acinq.bitcoin.ByteVector(alice.stateData.asInstanceOf[DATA_NEGOTIATING].commitments.localParams.defaultFinalScriptPubKey.toArray)
+      val expectedRemoteScript = new fr.acinq.bitcoin.ByteVector(bob.stateData.asInstanceOf[DATA_NEGOTIATING].commitments.localParams.defaultFinalScriptPubKey.toArray)
+      assert(closingTx.tx.txOut.map(_.publicKeyScript).toSet === Set(expectedLocalScript, expectedRemoteScript))
+    }
     assert(aliceCloseSig2.feeSatoshis > Transactions.weight2fee(TestConstants.anchorOutputsFeeratePerKw, closingTx.tx.weight())) // NB: closing fee is allowed to be higher than commit tx fee when using anchor outputs
   }
 
@@ -117,6 +126,10 @@ class NegotiatingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
   }
 
   test("recv ClosingSigned (anchor outputs)", Tag(StateTestsTags.AnchorOutputs)) {
+    testClosingSigned _
+  }
+
+  test("recv ClosingSigned (anchor outputs, upfront shutdown scripts)", Tag(StateTestsTags.AnchorOutputs), Tag(StateTestsTags.OptionUpfrontShutdownScript)) {
     testClosingSigned _
   }
 
@@ -138,6 +151,10 @@ class NegotiatingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
   }
 
   test("recv ClosingSigned (theirCloseFee == ourCloseFee) (fee 2)", Tag("fee2")) { f =>
+    testFeeConverge(f)
+  }
+
+  test("recv ClosingSigned (theirCloseFee == ourCloseFee) (fee 1, upfront shutdown script)", Tag(StateTestsTags.OptionUpfrontShutdownScript)) { f =>
     testFeeConverge(f)
   }
 
@@ -204,7 +221,7 @@ class NegotiatingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
     alice ! WatchFundingSpentTriggered(mutualCloseTx)
     assert(alice2blockchain.expectMsgType[PublishRawTx].tx === mutualCloseTx)
     assert(alice2blockchain.expectMsgType[WatchTxConfirmed].txId === mutualCloseTx.txid)
-    alice2blockchain.expectNoMsg(100 millis)
+    alice2blockchain.expectNoMessage(100 millis)
     assert(alice.stateName == CLOSING)
   }
 
@@ -224,7 +241,7 @@ class NegotiatingStateSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike 
     alice ! WatchFundingSpentTriggered(bobClosingTx.tx)
     assert(alice2blockchain.expectMsgType[PublishRawTx].tx === bobClosingTx.tx)
     assert(alice2blockchain.expectMsgType[WatchTxConfirmed].txId === bobClosingTx.tx.txid)
-    alice2blockchain.expectNoMsg(100 millis)
+    alice2blockchain.expectNoMessage(100 millis)
     assert(alice.stateName == CLOSING)
   }
 

@@ -101,7 +101,9 @@ case class OpenChannel(chainHash: ByteVector32,
                        htlcBasepoint: PublicKey,
                        firstPerCommitmentPoint: PublicKey,
                        channelFlags: Byte,
-                       tlvStream: TlvStream[OpenChannelTlv] = TlvStream.empty) extends ChannelMessage with HasTemporaryChannelId with HasChainHash
+                       tlvStream: TlvStream[OpenChannelTlv] = TlvStream.empty) extends ChannelMessage with HasTemporaryChannelId with HasChainHash {
+  val upfrontShutdownScript_opt: Option[ByteVector] = tlvStream.get[ChannelTlv.UpfrontShutdownScript].map(_.script)
+}
 
 case class AcceptChannel(temporaryChannelId: ByteVector32,
                          dustLimitSatoshis: Satoshi,
@@ -117,7 +119,9 @@ case class AcceptChannel(temporaryChannelId: ByteVector32,
                          delayedPaymentBasepoint: PublicKey,
                          htlcBasepoint: PublicKey,
                          firstPerCommitmentPoint: PublicKey,
-                         tlvStream: TlvStream[AcceptChannelTlv] = TlvStream.empty) extends ChannelMessage with HasTemporaryChannelId
+                         tlvStream: TlvStream[AcceptChannelTlv] = TlvStream.empty) extends ChannelMessage with HasTemporaryChannelId {
+  val upfrontShutdownScript_opt: Option[ByteVector] = tlvStream.get[ChannelTlv.UpfrontShutdownScript].map(_.script)
+}
 
 case class FundingCreated(temporaryChannelId: ByteVector32,
                           fundingTxid: ByteVector32,
@@ -132,6 +136,10 @@ case class FundingLocked(channelId: ByteVector32,
 
 case class Shutdown(channelId: ByteVector32,
                     scriptPubKey: ByteVector) extends ChannelMessage with HasChannelId
+
+object Shutdown {
+  def apply(channelId: ByteVector32, scriptPubKey: Array[Byte]) = new Shutdown(channelId, ByteVector.view(scriptPubKey))
+}
 
 case class ClosingSigned(channelId: ByteVector32,
                          feeSatoshis: Satoshi,

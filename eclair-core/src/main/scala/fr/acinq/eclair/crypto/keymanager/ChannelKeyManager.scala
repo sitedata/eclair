@@ -16,15 +16,15 @@
 
 package fr.acinq.eclair.crypto.keymanager
 
-import fr.acinq.bitcoin.{PrivateKey, PublicKey}
+import fr.acinq.bitcoin.{ByteVector64, Crypto, DeterministicWallet, KeyPath, PrivateKey, Protocol, PublicKey}
 import fr.acinq.bitcoin.DeterministicWallet.ExtendedPublicKey
-import fr.acinq.bitcoin.{ByteVector64, Crypto, DeterministicWallet, Protocol}
+import fr.acinq.bitcoin.crypto.Pack
 import fr.acinq.eclair.channel.{ChannelConfig, LocalParams}
 import fr.acinq.eclair.transactions.Transactions.{CommitmentFormat, TransactionWithInputInfo, TxOwner}
 import scodec.bits.ByteVector
 import fr.acinq.eclair.KotlinUtils._
-import scala.collection.JavaConverters._
 
+import scala.jdk.CollectionConverters._
 import java.io.ByteArrayInputStream
 import java.nio.ByteOrder
 
@@ -43,7 +43,7 @@ trait ChannelKeyManager {
 
   def commitmentPoint(channelKeyPath: KeyPath, index: Long): PublicKey
 
-  def keyPath(localParams: LocalParams, channelConfig: ChannelConfig): DeterministicWallet.KeyPath = {
+  def keyPath(localParams: LocalParams, channelConfig: ChannelConfig): KeyPath = {
     if (channelConfig.hasOption(ChannelConfig.FundingPubKeyBasedChannelKeyPath)) {
       // deterministic mode: use the funding pubkey to compute the channel key path
       ChannelKeyManager.keyPath(fundingPublicKey(localParams.fundingKeyPath))

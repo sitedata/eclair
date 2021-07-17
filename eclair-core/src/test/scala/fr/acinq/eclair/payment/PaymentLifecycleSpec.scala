@@ -100,7 +100,7 @@ class PaymentLifecycleSpec extends BaseRouterSpec {
     val route = Route(defaultAmountMsat, ChannelHop(a, b, update_ab) :: ChannelHop(b, c, update_bc) :: ChannelHop(c, d, update_cd) :: Nil)
     val request = SendPaymentToRoute(sender.ref, Right(route), Onion.createSinglePartPayload(defaultAmountMsat, defaultExpiry, defaultInvoice.paymentSecret.get))
     sender.send(paymentFSM, request)
-    routerForwarder.expectNoMsg(100 millis) // we don't need the router, we have the pre-computed route
+    routerForwarder.expectNoMessage(100 millis) // we don't need the router, we have the pre-computed route
     val Transition(_, WAITING_FOR_REQUEST, WAITING_FOR_ROUTE) = monitor.expectMsgClass(classOf[Transition[_]])
 
     val Transition(_, WAITING_FOR_ROUTE, WAITING_FOR_PAYMENT_COMPLETE) = monitor.expectMsgClass(classOf[Transition[_]])
@@ -341,7 +341,7 @@ class PaymentLifecycleSpec extends BaseRouterSpec {
     sender.send(paymentFSM, addCompleted(HtlcResult.OnChainFail(HtlcsTimedoutDownstream(randomBytes32(), Set.empty))))
 
     // this error is fatal
-    routerForwarder.expectNoMsg(100 millis)
+    routerForwarder.expectNoMessage(100 millis)
     sender.expectMsgType[PaymentFailed]
   }
 
@@ -362,7 +362,7 @@ class PaymentLifecycleSpec extends BaseRouterSpec {
 
     register.expectMsg(ForwardShortId(paymentFSM, channelId_ab, cmd1))
     val update_bc_disabled = update_bc.copy(channelFlags = Announcements.makeChannelFlags(isNode1 = true, enable = false))
-    sender.send(paymentFSM, addCompleted(HtlcResult.Disconnected(update_bc_disabled)))
+    sender.send(paymentFSM, addCompleted(HtlcResult.DisconnectedBeforeSigned(update_bc_disabled)))
 
     // then the payment lifecycle will ask for a new route excluding the channel
     routerForwarder.expectMsg(defaultRouteRequest(a, d, cfg).copy(ignore = Ignore(Set.empty, Set(ChannelDesc(channelId_ab, a, b)))))
@@ -724,7 +724,7 @@ class PaymentLifecycleSpec extends BaseRouterSpec {
     sender.send(paymentFSM, addCompleted(HtlcResult.RemoteFulfill(UpdateFulfillHtlc(ByteVector32.Zeroes, 0, defaultPaymentPreimage))))
     sender.expectMsgType[PaymentSent]
     assert(nodeParams.db.payments.getOutgoingPayment(id) === None)
-    eventListener.expectNoMsg(100 millis)
+    eventListener.expectNoMessage(100 millis)
   }
 
 }

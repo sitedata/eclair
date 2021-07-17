@@ -2,7 +2,7 @@ package fr.acinq.eclair.balance
 
 import akka.pattern.pipe
 import akka.testkit.TestProbe
-import fr.acinq.bitcoin.{ByteVector32, SatoshiLong}
+import fr.acinq.bitcoin.{Btc, ByteVector32, Satoshi, SatoshiLong}
 import fr.acinq.eclair.balance.CheckBalance.{ClosingBalance, OffChainBalance, PossiblyPublishedMainAndHtlcBalance, PossiblyPublishedMainBalance}
 import fr.acinq.eclair.blockchain.bitcoind.ZmqWatcher.{apply => _, _}
 import fr.acinq.eclair.blockchain.bitcoind.rpc.ExtendedBitcoinClient
@@ -26,6 +26,8 @@ import scala.collection.immutable.Queue
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
+
+class CheckBalanceSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with StateTestsBase {
 
   type FixtureParam = SetupFixture
 
@@ -75,7 +77,7 @@ import scala.concurrent.{ExecutionContext, Future}
       PossiblyPublishedMainAndHtlcBalance(
         toLocal = Map(remoteCommitPublished.claimMainOutputTx.get.tx.txid -> remoteCommitPublished.claimMainOutputTx.get.tx.txOut.head.amount),
         htlcs = claimTxs.drop(1).map(claimTx => claimTx.txid -> claimTx.txOut.head.amount.toBtc).toMap,
-        htlcsUnpublished = htlca3.amountMsat.truncateToSatoshi + htlcb2.amountMsat.truncateToSatoshi
+        htlcsUnpublished = htlca3.amountMsat.truncateToSatoshi plus htlcb2.amountMsat.truncateToSatoshi
       ))
   }
 
@@ -110,7 +112,8 @@ import scala.concurrent.{ExecutionContext, Future}
     val commitments = alice.stateData.asInstanceOf[DATA_CLOSING].commitments
     val remoteCommitPublished = alice.stateData.asInstanceOf[DATA_CLOSING].nextRemoteCommitPublished.get
     val knownPreimages = Set((commitments.channelId, htlcb1.id))
-    assert(CheckBalance.computeRemoteCloseBalance(commitments, CurrentRemoteClose(commitments.remoteNextCommitInfo.left.get.nextRemoteCommit, remoteCommitPublished), knownPreimages) ===
+    val Left(waitingForRevocation) = commitments.remoteNextCommitInfo
+    assert(CheckBalance.computeRemoteCloseBalance(commitments, CurrentRemoteClose(waitingForRevocation.nextRemoteCommit, remoteCommitPublished), knownPreimages) ===
       PossiblyPublishedMainAndHtlcBalance(
         toLocal = Map(remoteCommitPublished.claimMainOutputTx.get.tx.txid -> remoteCommitPublished.claimMainOutputTx.get.tx.txOut.head.amount),
         htlcs = claimTxs.drop(1).map(claimTx => claimTx.txid -> claimTx.txOut.head.amount.toBtc).toMap,
@@ -118,11 +121,11 @@ import scala.concurrent.{ExecutionContext, Future}
       ))
     // assuming alice gets the preimage for the 2nd htlc
     val knownPreimages1 = Set((commitments.channelId, htlcb1.id), (commitments.channelId, htlcb2.id))
-    assert(CheckBalance.computeRemoteCloseBalance(commitments, CurrentRemoteClose(commitments.remoteNextCommitInfo.left.get.nextRemoteCommit, remoteCommitPublished), knownPreimages1) ===
+    assert(CheckBalance.computeRemoteCloseBalance(commitments, CurrentRemoteClose(waitingForRevocation.nextRemoteCommit, remoteCommitPublished), knownPreimages1) ===
       PossiblyPublishedMainAndHtlcBalance(
         toLocal = Map(remoteCommitPublished.claimMainOutputTx.get.tx.txid -> remoteCommitPublished.claimMainOutputTx.get.tx.txOut.head.amount),
         htlcs = claimTxs.drop(1).map(claimTx => claimTx.txid -> claimTx.txOut.head.amount.toBtc).toMap,
-        htlcsUnpublished = htlca3.amountMsat.truncateToSatoshi + htlcb2.amountMsat.truncateToSatoshi
+        htlcsUnpublished = htlca3.amountMsat.truncateToSatoshi plus htlcb2.amountMsat.truncateToSatoshi
       ))
   }
 
@@ -154,7 +157,7 @@ import scala.concurrent.{ExecutionContext, Future}
       PossiblyPublishedMainAndHtlcBalance(
         toLocal = Map(localCommitPublished.claimMainDelayedOutputTx.get.tx.txid -> localCommitPublished.claimMainDelayedOutputTx.get.tx.txOut.head.amount),
         htlcs = Map.empty,
-        htlcsUnpublished = htlca1.amountMsat.truncateToSatoshi + htlca3.amountMsat.truncateToSatoshi + htlcb1.amountMsat.truncateToSatoshi
+        htlcsUnpublished = htlca1.amountMsat.truncateToSatoshi plus htlca3.amountMsat.truncateToSatoshi plus htlcb1.amountMsat.truncateToSatoshi
       ))
 
     alice2blockchain.expectMsgType[PublishRawTx] // claim-main

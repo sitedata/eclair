@@ -31,7 +31,7 @@ import kamon.tag.TagSet
 import scodec.bits.ByteVector
 import fr.acinq.eclair.KotlinUtils._
 
-import scala.collection.JavaConverters.seqAsJavaListConverter
+import scala.jdk.CollectionConverters._
 
 object LocalChannelKeyManager {
   def keyBasePath(chainHash: ByteVector32): KeyPath = (chainHash: @unchecked) match {

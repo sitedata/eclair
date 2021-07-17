@@ -497,8 +497,8 @@ class TransactionsSpec extends AnyFunSuite with Logging {
     val paymentPreimage4 = randomBytes32()
     val htlc4 = UpdateAddHtlc(ByteVector32.Zeroes, 4, (localDustLimit plus weight2fee(feeratePerKw, AnchorOutputsCommitmentFormat.htlcSuccessWeight)).toMilliSatoshi, sha256(paymentPreimage4), CltvExpiry(300), TestConstants.emptyOnionPacket)
     // htlc5 and htlc6 are dust IN/OUT htlcs
-    val htlc5 = UpdateAddHtlc(ByteVector32.Zeroes, 5, (localDustLimit times 0.9).toMilliSatoshi, sha256(randomBytes32), CltvExpiry(295), TestConstants.emptyOnionPacket)
-    val htlc6 = UpdateAddHtlc(ByteVector32.Zeroes, 6, (localDustLimit times 0.9).toMilliSatoshi, sha256(randomBytes32), CltvExpiry(305), TestConstants.emptyOnionPacket)
+    val htlc5 = UpdateAddHtlc(ByteVector32.Zeroes, 5, (localDustLimit times 0.9).toMilliSatoshi, sha256(randomBytes32()), CltvExpiry(295), TestConstants.emptyOnionPacket)
+    val htlc6 = UpdateAddHtlc(ByteVector32.Zeroes, 6, (localDustLimit times 0.9).toMilliSatoshi, sha256(randomBytes32()), CltvExpiry(305), TestConstants.emptyOnionPacket)
     val spec = CommitmentSpec(
       htlcs = Set(
         OutgoingHtlc(htlc1),
@@ -731,11 +731,11 @@ class TransactionsSpec extends AnyFunSuite with Logging {
     val paymentPreimage1 = new ByteVector32("1111111111111111111111111111111111111111111111111111111111111111")
     val paymentPreimage2 = new ByteVector32("2222222222222222222222222222222222222222222222222222222222222222")
     val paymentPreimage3 = new ByteVector32("3333333333333333333333333333333333333333333333333333333333333333")
-    val htlc1 = UpdateAddHtlc(randomBytes32, 1, MilliBtc(100).toMilliSatoshi, sha256(paymentPreimage1), CltvExpiry(300), TestConstants.emptyOnionPacket)
-    val htlc2 = UpdateAddHtlc(randomBytes32, 2, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage2), CltvExpiry(300), TestConstants.emptyOnionPacket)
-    val htlc3 = UpdateAddHtlc(randomBytes32, 3, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage3), CltvExpiry(300), TestConstants.emptyOnionPacket)
-    val htlc4 = UpdateAddHtlc(randomBytes32, 4, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage3), CltvExpiry(300), TestConstants.emptyOnionPacket)
-    val htlc5 = UpdateAddHtlc(randomBytes32, 5, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage3), CltvExpiry(301), TestConstants.emptyOnionPacket)
+    val htlc1 = UpdateAddHtlc(randomBytes32(), 1, MilliBtc(100).toMilliSatoshi, sha256(paymentPreimage1), CltvExpiry(300), TestConstants.emptyOnionPacket)
+    val htlc2 = UpdateAddHtlc(randomBytes32(), 2, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage2), CltvExpiry(300), TestConstants.emptyOnionPacket)
+    val htlc3 = UpdateAddHtlc(randomBytes32(), 3, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage3), CltvExpiry(300), TestConstants.emptyOnionPacket)
+    val htlc4 = UpdateAddHtlc(randomBytes32(), 4, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage3), CltvExpiry(300), TestConstants.emptyOnionPacket)
+    val htlc5 = UpdateAddHtlc(randomBytes32(), 5, MilliBtc(200).toMilliSatoshi, sha256(paymentPreimage3), CltvExpiry(301), TestConstants.emptyOnionPacket)
 
     val spec = CommitmentSpec(
       htlcs = Set(

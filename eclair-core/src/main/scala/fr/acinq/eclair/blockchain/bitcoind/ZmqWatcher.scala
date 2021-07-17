@@ -23,12 +23,10 @@ import fr.acinq.bitcoin._
 import fr.acinq.eclair.blockchain.Monitoring.Metrics
 import fr.acinq.eclair.blockchain._
 import fr.acinq.eclair.blockchain.bitcoind.rpc.ExtendedBitcoinClient
-import fr.acinq.eclair.blockchain.bitcoind.rpc.ExtendedBitcoinClient.Utxo
 import fr.acinq.eclair.blockchain.watchdogs.BlockchainWatchdog
 import fr.acinq.eclair.wire.protocol.ChannelAnnouncement
 import fr.acinq.eclair.{KamonExt, ShortChannelId}
 import org.json4s.JsonAST._
-import scodec.bits.ByteVector
 import fr.acinq.eclair.KotlinUtils._
 
 import java.util.concurrent.atomic.AtomicLong
@@ -383,6 +381,7 @@ private class ZmqWatcher(chainHash: ByteVector32, blockCount: AtomicLong, client
             }
           }
         }
+      case _ => Future.successful((): Unit)
     }
   }
 

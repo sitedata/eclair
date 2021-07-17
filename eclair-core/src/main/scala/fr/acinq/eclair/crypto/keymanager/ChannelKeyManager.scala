@@ -18,10 +18,8 @@ package fr.acinq.eclair.crypto.keymanager
 
 import fr.acinq.bitcoin.{PrivateKey, PublicKey}
 import fr.acinq.bitcoin.DeterministicWallet.ExtendedPublicKey
-import fr.acinq.bitcoin.crypto.Pack
-import fr.acinq.bitcoin.io.ByteArrayInput
-import fr.acinq.bitcoin.{ByteVector64, Crypto, DeterministicWallet, KeyPath, PrivateKey, Protocol, PublicKey}
-import fr.acinq.eclair.channel.{ChannelVersion, LocalParams}
+import fr.acinq.bitcoin.{ByteVector64, Crypto, DeterministicWallet, Protocol}
+import fr.acinq.eclair.channel.{ChannelConfig, LocalParams}
 import fr.acinq.eclair.transactions.Transactions.{CommitmentFormat, TransactionWithInputInfo, TxOwner}
 import scodec.bits.ByteVector
 import fr.acinq.eclair.KotlinUtils._
@@ -45,12 +43,14 @@ trait ChannelKeyManager {
 
   def commitmentPoint(channelKeyPath: KeyPath, index: Long): PublicKey
 
-  def keyPath(localParams: LocalParams, channelVersion: ChannelVersion): KeyPath = if (channelVersion.hasPubkeyKeyPath) {
-    // deterministic mode: use the funding pubkey to compute the channel key path
-    ChannelKeyManager.keyPath(fundingPublicKey(localParams.fundingKeyPath))
-  } else {
-    // legacy mode:  we reuse the funding key path as our channel key path
-    localParams.fundingKeyPath
+  def keyPath(localParams: LocalParams, channelConfig: ChannelConfig): DeterministicWallet.KeyPath = {
+    if (channelConfig.hasOption(ChannelConfig.FundingPubKeyBasedChannelKeyPath)) {
+      // deterministic mode: use the funding pubkey to compute the channel key path
+      ChannelKeyManager.keyPath(fundingPublicKey(localParams.fundingKeyPath))
+    } else {
+      // legacy mode:  we reuse the funding key path as our channel key path
+      localParams.fundingKeyPath
+    }
   }
 
   /**

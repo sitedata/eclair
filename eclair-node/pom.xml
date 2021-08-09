@@ -21,7 +21,7 @@
     <parent>
         <groupId>fr.acinq.eclair</groupId>
         <artifactId>eclair_2.13</artifactId>
-        <version>0.6.1-bitcoin-kmp-SNAPSHOT</version>
+        <version>0.6.2-bitcoin-kmp-SNAPSHOT</version>
     </parent>
 
     <artifactId>eclair-node_2.13</artifactId>
@@ -101,7 +101,7 @@
         <dependency>
             <groupId>de.heikoseeberger</groupId>
             <artifactId>akka-http-json4s_${scala.version.short}</artifactId>
-            <version>1.34.0</version>
+            <version>1.37.0</version>
         </dependency>
         <!-- metrics -->
         <dependency>

@@ -3,7 +3,7 @@ package fr.acinq.eclair.balance
 import akka.pattern.pipe
 import akka.testkit.TestProbe
 import fr.acinq.bitcoin.{Btc, ByteVector32, Satoshi, SatoshiLong}
-import fr.acinq.eclair.balance.CheckBalance.{ClosingBalance, OffChainBalance, PossiblyPublishedMainAndHtlcBalance, PossiblyPublishedMainBalance}
+import fr.acinq.eclair.balance.CheckBalance.{ClosingBalance, MainAndHtlcBalance, OffChainBalance, PossiblyPublishedMainAndHtlcBalance, PossiblyPublishedMainBalance}
 import fr.acinq.eclair.blockchain.bitcoind.ZmqWatcher.{apply => _, _}
 import fr.acinq.eclair.blockchain.bitcoind.rpc.ExtendedBitcoinClient
 import fr.acinq.eclair.channel.Helpers.Closing.{CurrentRemoteClose, LocalClose}
@@ -14,7 +14,7 @@ import fr.acinq.eclair.db.jdbc.JdbcUtils.ExtendedResultSet._
 import fr.acinq.eclair.db.pg.PgUtils.using
 import fr.acinq.eclair.wire.internal.channel.ChannelCodecs.stateDataCodec
 import fr.acinq.eclair.wire.protocol.{CommitSig, Error, RevokeAndAck}
-import fr.acinq.eclair.{MilliSatoshiLong, TestKitBaseClass, randomBytes32}
+import fr.acinq.eclair.{MilliSatoshi, MilliSatoshiLong, TestConstants, TestKitBaseClass, ToMilliSatoshiConversion, randomBytes32}
 import org.scalatest.Outcome
 import org.scalatest.funsuite.FixtureAnyFunSuiteLike
 import org.sqlite.SQLiteConfig
@@ -32,6 +32,7 @@ class CheckBalanceSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with
   type FixtureParam = SetupFixture
 
   implicit def sat2btc(input: Satoshi): Btc = input.toBtc
+  implicit def sat2msat(input: Satoshi): MilliSatoshi = input.toMilliSatoshi
 
   override def withFixture(test: OneArgTest): Outcome = {
     val setup = init()
@@ -39,6 +40,23 @@ class CheckBalanceSpec extends TestKitBaseClass with FixtureAnyFunSuiteLike with
       reachNormal(setup, test.tags)
       withFixture(test.toNoArgTest(setup))
     }
+  }
+
+  test("do not deduplicate htlc amounts") { f =>
+    import f._
+
+    // We add 3 identical htlcs Alice -> Bob
+    addHtlc(10_000_000 msat, alice, bob, alice2bob, bob2alice)
+    addHtlc(10_000_000 msat, alice, bob, alice2bob, bob2alice)
+    addHtlc(10_000_000 msat, alice, bob, alice2bob, bob2alice)
+    crossSign(alice, bob, alice2bob, bob2alice)
+
+    assert(CheckBalance.computeOffChainBalance(Seq(alice.stateData.asInstanceOf[DATA_NORMAL]), knownPreimages = Set.empty).normal ===
+      MainAndHtlcBalance(
+        toLocal = (TestConstants.fundingSatoshis - TestConstants.pushMsat - 30_000_000.msat).truncateToSatoshi,
+        htlcOut = 30_000.sat
+      )
+    )
   }
 
   test("take published remote commit tx into account") { f =>

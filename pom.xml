@@ -20,7 +20,7 @@
 
     <groupId>fr.acinq.eclair</groupId>
     <artifactId>eclair_2.13</artifactId>
-    <version>0.6.1-bitcoin-kmp-SNAPSHOT</version>
+    <version>0.6.2-bitcoin-kmp-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <modules>
@@ -57,6 +57,9 @@
         </developer>
         <developer>
             <id>sstone</id>
+        </developer>
+        <developer>
+            <id>t-bast</id>
         </developer>
     </developers>
 

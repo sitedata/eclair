@@ -97,11 +97,11 @@ class WaitForAcceptChannelStateSpec extends TestKitBaseClass with FixtureAnyFunS
   test("recv AcceptChannel (dust limit too low)", Tag("mainnet")) { f =>
     import f._
     val accept = bob2alice.expectMsgType[AcceptChannel]
-    // we don't want their dust limit to be below 546
-    val lowDustLimitSatoshis = 545.sat
+    // we don't want their dust limit to be below 330
+    val lowDustLimitSatoshis = 329.sat
     alice ! accept.copy(dustLimitSatoshis = lowDustLimitSatoshis)
     val error = alice2bob.expectMsgType[Error]
-    assert(error === Error(accept.temporaryChannelId, DustLimitTooSmall(accept.temporaryChannelId, lowDustLimitSatoshis, Channel.MIN_DUSTLIMIT).getMessage))
+    assert(error === Error(accept.temporaryChannelId, DustLimitTooSmall(accept.temporaryChannelId, lowDustLimitSatoshis, Channel.MIN_DUST_LIMIT).getMessage))
     awaitCond(alice.stateName == CLOSED)
   }
 

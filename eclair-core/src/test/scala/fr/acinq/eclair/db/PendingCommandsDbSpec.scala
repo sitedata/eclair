@@ -77,7 +77,7 @@ class PendingCommandsDbSpec extends AnyFunSuite {
     }
   }
 
-  test("migrate database v1->v2/v3") {
+  test("migrate database v1 -> current") {
     forAllDbs {
       case dbs: TestPgDatabases =>
         migrationCheck(
@@ -96,8 +96,8 @@ class PendingCommandsDbSpec extends AnyFunSuite {
               }
             }
           },
-          dbName = "pending_relay",
-          targetVersion = 3,
+          dbName = PgPendingCommandsDb.DB_NAME,
+          targetVersion = PgPendingCommandsDb.CURRENT_VERSION,
           postCheck = _ =>
             assert(dbs.pendingCommands.listSettlementCommands().toSet === testCases.map(tc => tc.channelId -> tc.cmd))
         )
@@ -118,8 +118,8 @@ class PendingCommandsDbSpec extends AnyFunSuite {
               }
             }
           },
-          dbName = "pending_relay",
-          targetVersion = 2,
+          dbName = SqlitePendingCommandsDb.DB_NAME,
+          targetVersion = SqlitePendingCommandsDb.CURRENT_VERSION,
           postCheck = _ =>
             assert(dbs.pendingCommands.listSettlementCommands().toSet === testCases.map(tc => tc.channelId -> tc.cmd))
         )

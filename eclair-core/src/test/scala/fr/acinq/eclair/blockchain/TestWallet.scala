@@ -17,9 +17,10 @@
 package fr.acinq.eclair.blockchain
 
 import fr.acinq.bitcoin.Crypto.PublicKey
-import fr.acinq.bitcoin.{ByteVector32, Crypto, OutPoint, Psbt, Satoshi, SatoshiLong, Script, Transaction, TxIn, TxOut}
+import fr.acinq.bitcoin.{ByteVector32, Crypto, DeterministicWallet, OutPoint, Psbt, Satoshi, SatoshiLong, Script, Transaction, TxIn, TxOut}
 import fr.acinq.eclair.blockchain.fee.FeeratePerKw
 import fr.acinq.eclair.randomKey
+import fr.acinq.eclair.transactions.Scripts
 import scodec.bits._
 
 import scala.concurrent.Future
@@ -40,6 +41,9 @@ class TestWallet extends EclairWallet {
 
   override def makeFundingTx(pubkeyScript: ByteVector, amount: Satoshi, feeRatePerKw: FeeratePerKw): Future[MakeFundingTxResponse] =
     Future.successful(TestWallet.makeDummyFundingTx(pubkeyScript, amount))
+
+  override def makeFundingTx(localFundingKey: DeterministicWallet.ExtendedPublicKey, remoteFundingKey: PublicKey, amount: Satoshi, feeRatePerKw: FeeratePerKw): Future[MakeFundingTxResponse] =
+    makeFundingTx(Script.write(Script.pay2wsh(Scripts.multiSig2of2(localFundingKey.publicKey, remoteFundingKey))), amount, feeRatePerKw)
 
   override def commit(tx: Transaction): Future[Boolean] = Future.successful(true)
 

@@ -358,7 +358,7 @@ object ExtendedBitcoinClient {
   }
 
   case class FundPsbtResponse(psbt: Psbt, fee: Satoshi, changePosition: Option[Int]) {
-    val amountIn: Satoshi = fee + psbt.computeFees().get
+    val amountIn: Satoshi = psbt.computeFees().get + psbt.global.tx.txOut.map(_.amount).sum
   }
 
   case class PreviousTx(txid: ByteVector32, vout: Long, scriptPubKey: String, redeemScript: String, witnessScript: String, amount: BigDecimal)

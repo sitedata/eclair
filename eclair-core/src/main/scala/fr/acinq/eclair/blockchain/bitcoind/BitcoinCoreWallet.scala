@@ -17,13 +17,14 @@
 package fr.acinq.eclair.blockchain.bitcoind
 
 import fr.acinq.bitcoin.Crypto.PublicKey
+import fr.acinq.bitcoin.DeterministicWallet.ExtendedPublicKey
 import fr.acinq.bitcoin._
 import fr.acinq.eclair.addressToPublicKeyScript
 import fr.acinq.eclair.blockchain._
 import fr.acinq.eclair.blockchain.bitcoind.rpc.ExtendedBitcoinClient.{FundPsbtOptions, FundPsbtResponse, FundTransactionOptions, FundTransactionResponse, ProcessPsbtResponse, SignTransactionResponse, toSatoshi}
 import fr.acinq.eclair.blockchain.bitcoind.rpc.{BitcoinJsonRPCClient, ExtendedBitcoinClient}
 import fr.acinq.eclair.blockchain.fee.{FeeratePerKB, FeeratePerKw}
-import fr.acinq.eclair.transactions.Transactions
+import fr.acinq.eclair.transactions.{Scripts, Transactions}
 import grizzled.slf4j.Logging
 import org.json4s.JsonAST._
 import scodec.bits.ByteVector
@@ -180,6 +181,43 @@ class BitcoinCoreWallet(chainHash: ByteVector32, rpcClient: BitcoinJsonRPCClient
     JString(rawKey) <- rpcClient.invoke("getaddressinfo", address).map(_ \ "pubkey")
   } yield PublicKey(ByteVector.fromValidHex(rawKey))
 
+  override def makeFundingTx(localFundingKey: ExtendedPublicKey, remoteFundingKey: PublicKey, amount: Satoshi, feeRatePerKw: FeeratePerKw): Future[MakeFundingTxResponse] = {
+    val hrp = chainHash match {
+      case Block.RegtestGenesisBlock.hash => "bcrt"
+      case Block.TestnetGenesisBlock.hash => "tb"
+      case Block.LivenetGenesisBlock.hash => "bc"
+      case _ => return Future.failed(new IllegalArgumentException(s"invalid chain hash ${chainHash}"))
+    }
+    logger.info(s"funding psbt with local_funding_key=$localFundingKey and remote_funding_key=$remoteFundingKey")
+    val fundingPubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(localFundingKey.publicKey, remoteFundingKey)))
+    val fundingAddress = Script.parse(fundingPubkeyScript) match {
+      case OP_0 :: OP_PUSHDATA(data, _) :: Nil if data.size == 20 || data.size == 32 =>  Bech32.encodeWitnessAddress(hrp, 0, data)
+      case _ => return Future.failed(new IllegalArgumentException("invalid pubkey script"))
+    }
+
+    for {
+      // we ask bitcoin core to create and fund the funding tx
+      actualFeeRate <- getMinFeerate(feeRatePerKw)
+      FundPsbtResponse(psbt, fee, Some(changePos)) <- bitcoinClient.fundPsbt(Map(fundingAddress -> amount), 0, FundPsbtOptions(FeeratePerKw(actualFeeRate), lockUtxos = true))
+      ourbip32path = localFundingKey.path.drop(2)
+      output = psbt.outputs(1 - changePos).copy(
+        derivationPaths = Map(
+          localFundingKey.publicKey -> Psbt.KeyPathWithMaster(localFundingKey.parent, ourbip32path),
+          remoteFundingKey -> Psbt.KeyPathWithMaster(0L, DeterministicWallet.KeyPath("1/2/3/4"))
+        )
+      )
+      psbt1 = psbt.copy(outputs = psbt.outputs.updated(1 - changePos, output))
+      // now let's sign the funding tx
+      ProcessPsbtResponse(signedPsbt, true) <- signPsbtOrUnlock(psbt1)
+      Success(fundingTx) = signedPsbt.extract()
+      // there will probably be a change output, so we need to find which output is ours
+      outputIndex <- Transactions.findPubKeyScriptIndex(fundingTx, fundingPubkeyScript) match {
+        case Right(outputIndex) => Future.successful(outputIndex)
+        case Left(skipped) => Future.failed(new RuntimeException(skipped.toString))
+      }
+      _ = logger.debug(s"created funding txid=${fundingTx.txid} outputIndex=$outputIndex fee=${fee}")
+    } yield MakeFundingTxResponse(signedPsbt, outputIndex, fee)
+  }
 
   override def makeFundingTx(pubkeyScript: ByteVector, amount: Satoshi, feerate: FeeratePerKw): Future[MakeFundingTxResponse] = {
     val hrp = chainHash match {

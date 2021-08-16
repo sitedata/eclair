@@ -17,6 +17,7 @@
 package fr.acinq.eclair.blockchain
 
 import fr.acinq.bitcoin.Crypto.PublicKey
+import fr.acinq.bitcoin.DeterministicWallet.ExtendedPublicKey
 import fr.acinq.bitcoin.{Psbt, Satoshi, Transaction}
 import fr.acinq.eclair.blockchain.fee.FeeratePerKw
 import scodec.bits.ByteVector
@@ -36,7 +37,9 @@ trait EclairWallet {
   def getReceiveAddress(label: String = ""): Future[String]
 
   def getReceivePubkey(receiveAddress: Option[String] = None): Future[PublicKey]
-  
+
+  def makeFundingTx(localFundingKey: ExtendedPublicKey, remoteFundingKey: PublicKey, amount: Satoshi, feeRatePerKw: FeeratePerKw): Future[MakeFundingTxResponse]
+
   def makeFundingTx(pubkeyScript: ByteVector, amount: Satoshi, feeRatePerKw: FeeratePerKw): Future[MakeFundingTxResponse]
 
   /**

@@ -191,23 +191,31 @@ class BitcoinCoreWallet(chainHash: ByteVector32, rpcClient: BitcoinJsonRPCClient
     logger.info(s"funding psbt with local_funding_key=$localFundingKey and remote_funding_key=$remoteFundingKey")
     val fundingPubkeyScript = Script.write(Script.pay2wsh(Scripts.multiSig2of2(localFundingKey.publicKey, remoteFundingKey)))
     val fundingAddress = Script.parse(fundingPubkeyScript) match {
-      case OP_0 :: OP_PUSHDATA(data, _) :: Nil if data.size == 20 || data.size == 32 =>  Bech32.encodeWitnessAddress(hrp, 0, data)
+      case OP_0 :: OP_PUSHDATA(data, _) :: Nil if data.size == 20 || data.size == 32 => Bech32.encodeWitnessAddress(hrp, 0, data)
       case _ => return Future.failed(new IllegalArgumentException("invalid pubkey script"))
     }
 
-    for {
-      // we ask bitcoin core to create and fund the funding tx
-      actualFeeRate <- getMinFeerate(feeRatePerKw)
-      FundPsbtResponse(psbt, fee, Some(changePos)) <- bitcoinClient.fundPsbt(Seq(fundingAddress -> amount), 0, FundPsbtOptions(FeeratePerKw(actualFeeRate), lockUtxos = true))
-      ourbip32path = localFundingKey.path.drop(2)
-      _ = logger.info(s"funded psbt = $psbt")
-      output = psbt.outputs(1 - changePos).copy(
+    def updatePsbt(psbt: Psbt, changepos_opt: Option[Int], ourbip32path: Seq[Long]): Psbt = {
+      val outputIndex = changepos_opt match {
+        case None => 0
+        case Some(changePos) => 1 - changePos
+      }
+      val output = psbt.outputs(outputIndex).copy(
         derivationPaths = Map(
           localFundingKey.publicKey -> Psbt.KeyPathWithMaster(localFundingKey.parent, ourbip32path),
           remoteFundingKey -> Psbt.KeyPathWithMaster(0L, DeterministicWallet.KeyPath("1/2/3/4"))
         )
       )
-      psbt1 = psbt.copy(outputs = psbt.outputs.updated(1 - changePos, output))
+      psbt.copy(outputs = psbt.outputs.updated(outputIndex, output))
+    }
+
+    for {
+      // we ask bitcoin core to create and fund the funding tx
+      actualFeeRate <- getMinFeerate(feeRatePerKw)
+      FundPsbtResponse(psbt, fee, changePos_opt) <- bitcoinClient.fundPsbt(Seq(fundingAddress -> amount), 0, FundPsbtOptions(FeeratePerKw(actualFeeRate), lockUtxos = true, changePosition = Some(1)))
+      ourbip32path = localFundingKey.path.drop(2)
+      _ = logger.info(s"funded psbt = $psbt")
+      psbt1 = updatePsbt(psbt, changePos_opt, ourbip32path)
       // now let's sign the funding tx
       ProcessPsbtResponse(signedPsbt, complete) <- signPsbtOrUnlock(psbt1)
       _ = logger.info(s"psbt signing complete = $complete")

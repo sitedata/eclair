@@ -287,7 +287,7 @@ class ZmqWatcherSpec extends TestKitBaseClass with AnyFunSuiteLike with Bitcoind
       // create a chain of transactions that we don't broadcast yet
       val priv = dumpPrivateKey(getNewAddress(probe), probe)
       val tx1 = {
-        bitcoinClient.fundPsbt(Map(Bech32.encodeWitnessAddress("bcrt", 0, priv.publicKey.hash160) -> 150000.sat), locktime = 0, FundPsbtOptions(FeeratePerKw(250 sat), lockUtxos = true)).pipeTo(probe.ref)
+        bitcoinClient.fundPsbt(Seq(Bech32.encodeWitnessAddress("bcrt", 0, priv.publicKey.hash160) -> 150000.sat), locktime = 0, FundPsbtOptions(FeeratePerKw(250 sat), lockUtxos = true)).pipeTo(probe.ref)
         val funded = probe.expectMsgType[FundPsbtResponse].psbt
         bitcoinClient.processPsbt(funded, sign = true, sighashType = SIGHASH_ALL).pipeTo(probe.ref)
         probe.expectMsgType[ProcessPsbtResponse].psbt.extract().get

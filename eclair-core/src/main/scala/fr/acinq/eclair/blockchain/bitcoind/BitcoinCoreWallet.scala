@@ -53,7 +53,7 @@ class BitcoinCoreWallet(chainHash: ByteVector32, rpcClient: BitcoinJsonRPCClient
     })
   }
 
-  def fundTransaction(outputs: Map[String, Satoshi], lockUtxos: Boolean, feeRatePerKw: FeeratePerKw): Future[FundTransactionResponse] = {
+  def fundTransaction(outputs: Seq[(String, Satoshi)], lockUtxos: Boolean, feeRatePerKw: FeeratePerKw): Future[FundTransactionResponse] = {
     val requestedFeeRatePerKB = FeeratePerKB(feeRatePerKw)
     rpcClient.invoke("getmempoolinfo").map(json => json \ "mempoolminfee" match {
       case JDecimal(feerate) => FeeratePerKB(Btc(feerate).toSatoshi).max(requestedFeeRatePerKB)
@@ -70,7 +70,7 @@ class BitcoinCoreWallet(chainHash: ByteVector32, rpcClient: BitcoinJsonRPCClient
     })
   }
 
-  def fundPsbt(outputs: Map[String, Satoshi], lockUtxos: Boolean, feeRatePerKw: FeeratePerKw): Future[FundPsbtResponse] = {
+  def fundPsbt(outputs: Seq[(String, Satoshi)], lockUtxos: Boolean, feeRatePerKw: FeeratePerKw): Future[FundPsbtResponse] = {
     val requestedFeeRatePerKB = FeeratePerKB(feeRatePerKw)
     rpcClient.invoke("getmempoolinfo").map(json => json \ "mempoolminfee" match {
       case JDecimal(feerate) => FeeratePerKB(Btc(feerate).toSatoshi).max(requestedFeeRatePerKB)
@@ -198,8 +198,9 @@ class BitcoinCoreWallet(chainHash: ByteVector32, rpcClient: BitcoinJsonRPCClient
     for {
       // we ask bitcoin core to create and fund the funding tx
       actualFeeRate <- getMinFeerate(feeRatePerKw)
-      FundPsbtResponse(psbt, fee, Some(changePos)) <- bitcoinClient.fundPsbt(Map(fundingAddress -> amount), 0, FundPsbtOptions(FeeratePerKw(actualFeeRate), lockUtxos = true))
+      FundPsbtResponse(psbt, fee, Some(changePos)) <- bitcoinClient.fundPsbt(Seq(fundingAddress -> amount), 0, FundPsbtOptions(FeeratePerKw(actualFeeRate), lockUtxos = true))
       ourbip32path = localFundingKey.path.drop(2)
+      _ = logger.info(s"funded psbt = $psbt")
       output = psbt.outputs(1 - changePos).copy(
         derivationPaths = Map(
           localFundingKey.publicKey -> Psbt.KeyPathWithMaster(localFundingKey.parent, ourbip32path),
@@ -208,8 +209,11 @@ class BitcoinCoreWallet(chainHash: ByteVector32, rpcClient: BitcoinJsonRPCClient
       )
       psbt1 = psbt.copy(outputs = psbt.outputs.updated(1 - changePos, output))
       // now let's sign the funding tx
-      ProcessPsbtResponse(signedPsbt, true) <- signPsbtOrUnlock(psbt1)
-      Success(fundingTx) = signedPsbt.extract()
+      ProcessPsbtResponse(signedPsbt, complete) <- signPsbtOrUnlock(psbt1)
+      _ = logger.info(s"psbt signing complete = $complete")
+      extracted = signedPsbt.extract()
+      _ = if (extracted.isFailure) logger.error(s"psbt failure $extracted")
+      fundingTx = extracted.get
       // there will probably be a change output, so we need to find which output is ours
       outputIndex <- Transactions.findPubKeyScriptIndex(fundingTx, fundingPubkeyScript) match {
         case Right(outputIndex) => Future.successful(outputIndex)
@@ -234,7 +238,7 @@ class BitcoinCoreWallet(chainHash: ByteVector32, rpcClient: BitcoinJsonRPCClient
     for {
       // we ask bitcoin core to create and fund the funding tx
       actualFeeRate <- getMinFeerate(feerate)
-      FundPsbtResponse(psbt, fee, changePosition) <- bitcoinClient.fundPsbt(Map(fundingAddress -> amount), 0, FundPsbtOptions(FeeratePerKw(actualFeeRate), lockUtxos = true))
+      FundPsbtResponse(psbt, fee, changePosition) <- bitcoinClient.fundPsbt(Seq(fundingAddress -> amount), 0, FundPsbtOptions(FeeratePerKw(actualFeeRate), lockUtxos = true))
       // now let's sign the funding tx
       ProcessPsbtResponse(signedPsbt, true) <- signPsbtOrUnlock(psbt)
       Success(fundingTx) = signedPsbt.extract()

@@ -102,8 +102,8 @@ class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) extends Logging
     })
   }
 
-  def fundPsbt(inputs: Seq[FundPsbtInput], outputs: Map[String, Satoshi], locktime: Int, options: FundPsbtOptions)(implicit ec: ExecutionContext): Future[FundPsbtResponse] = {
-    rpcClient.invoke("walletcreatefundedpsbt", inputs.toArray, outputs.map { case (a,b) => a -> b.toBtc.toBigDecimal }, locktime, options).map(json => {
+  def fundPsbt(inputs: Seq[FundPsbtInput], outputs: Seq[(String, Satoshi)], locktime: Long, options: FundPsbtOptions)(implicit ec: ExecutionContext): Future[FundPsbtResponse] = {
+    rpcClient.invoke("walletcreatefundedpsbt", inputs.toArray, outputs.map { case (a, b) => a -> b.toBtc.toBigDecimal }, locktime, options).map(json => {
       val JString(base64) = json \ "psbt"
       val JInt(changePos) = json \ "changepos"
       val JDecimal(fee) = json \ "fee"
@@ -113,7 +113,7 @@ class ExtendedBitcoinClient(val rpcClient: BitcoinJsonRPCClient) extends Logging
     })
   }
 
-  def fundPsbt(outputs: Map[String, Satoshi], locktime: Int, options: FundPsbtOptions)(implicit ec: ExecutionContext): Future[FundPsbtResponse] =
+  def fundPsbt(outputs: Seq[(String, Satoshi)], locktime: Long, options: FundPsbtOptions)(implicit ec: ExecutionContext): Future[FundPsbtResponse] =
     fundPsbt(Seq(), outputs, locktime, options)
 
   def processPsbt(psbt: Psbt, sign: Boolean = true, sighashType: Int = SIGHASH_ALL)(implicit ec: ExecutionContext): Future[ProcessPsbtResponse] = {

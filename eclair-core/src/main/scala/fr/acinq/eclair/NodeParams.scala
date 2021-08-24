@@ -18,7 +18,6 @@ package fr.acinq.eclair
 
 import com.typesafe.config.{Config, ConfigFactory, ConfigValueType}
 import fr.acinq.bitcoin.{Block, ByteVector32, Crypto, PrivateKey, PublicKey, Satoshi}
-import fr.acinq.eclair.NodeParams.WatcherType
 import fr.acinq.eclair.Setup.Seeds
 import fr.acinq.eclair.blockchain.fee._
 import fr.acinq.eclair.channel.Channel
@@ -393,10 +392,12 @@ object NodeParams extends Logging {
         searchMaxCltv = CltvExpiryDelta(config.getInt("router.path-finding.max-cltv")),
         searchMaxFeeBase = new Satoshi(config.getLong("router.path-finding.fee-threshold-sat")),
         searchMaxFeePct = config.getDouble("router.path-finding.max-fee-pct"),
-        searchHeuristicsEnabled = config.getBoolean("router.path-finding.heuristics-enable"),
+        searchRatioBase = config.getDouble("router.path-finding.ratio-base"),
         searchRatioCltv = config.getDouble("router.path-finding.ratio-cltv"),
         searchRatioChannelAge = config.getDouble("router.path-finding.ratio-channel-age"),
         searchRatioChannelCapacity = config.getDouble("router.path-finding.ratio-channel-capacity"),
+        searchHopCostBase = MilliSatoshi(config.getLong("router.path-finding.hop-cost-base-msat")),
+        searchHopCostMillionths = config.getLong("router.path-finding.hop-cost-millionths"),
         mppMinPartAmount = new Satoshi(config.getLong("router.path-finding.mpp.min-amount-satoshis")).toMilliSatoshi,
         mppMaxParts = config.getInt("router.path-finding.mpp.max-parts")
       ),

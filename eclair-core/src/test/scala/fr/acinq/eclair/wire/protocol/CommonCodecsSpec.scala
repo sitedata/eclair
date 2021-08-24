@@ -256,7 +256,7 @@ class CommonCodecsSpec extends AnyFunSuite {
 
   test("backward compatibility on feerate codec") {
     val value = 123456
-    val feerate = FeeratePerKw(PimpSatoshi(value))
+    val feerate = FeeratePerKw(new Satoshi(value))
     assert(feeratePerKw.decode(uint32.encode(value).require).require === DecodeResult(feerate, BitVector.empty))
   }
 

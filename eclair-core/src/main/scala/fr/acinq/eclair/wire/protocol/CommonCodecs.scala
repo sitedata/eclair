@@ -59,7 +59,7 @@ object CommonCodecs {
   val satoshi: Codec[Satoshi] = uint64overflow.xmapc(l => new Satoshi(l))(_.toLong)
   val millisatoshi: Codec[MilliSatoshi] = uint64overflow.xmapc(l => MilliSatoshi(l))(_.toLong)
 
-  val feeratePerKw: Codec[FeeratePerKw] = uint32.xmapc(l => FeeratePerKw(PimpSatoshi(l)))(x => x.toLong)
+  val feeratePerKw: Codec[FeeratePerKw] = uint32.xmapc(l => FeeratePerKw(new Satoshi(l)))(x => x.toLong)
 
   val cltvExpiry: Codec[CltvExpiry] = uint32.xmapc(CltvExpiry)((_: CltvExpiry).toLong)
   val cltvExpiryDelta: Codec[CltvExpiryDelta] = uint16.xmapc(CltvExpiryDelta)((_: CltvExpiryDelta).toInt)

@@ -111,7 +111,7 @@ class Peer(val nodeParams: NodeParams, remoteNodeId: PublicKey, wallet: EclairWa
         // It's up to the node operator to decide what to do to address the warning.
         stay()
 
-      case Event(err@Error(channelId, reason), d: ConnectedData) if channelId == CHANNELID_ZERO =>
+      case Event(err@Error(channelId, reason, _), d: ConnectedData) if channelId == CHANNELID_ZERO =>
         log.error(s"connection-level error, failing all channels! reason=${new String(reason.toArray)}")
         d.channels.values.toSet[ActorRef].foreach(_ forward err) // we deduplicate with toSet because there might be two entries per channel (tmp id and final id)
         d.peerConnection ! PeerConnection.Kill(KillReason.AllChannelsFail)

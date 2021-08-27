@@ -27,7 +27,7 @@ import fr.acinq.eclair.wire.internal.channel.version0.ChannelTypes0
 import fr.acinq.eclair.wire.internal.channel.version0.ChannelTypes0.{HtlcTxAndSigs, PublishableTxs}
 import fr.acinq.eclair.wire.protocol.CommonCodecs._
 import fr.acinq.eclair.wire.protocol.LightningMessageCodecs._
-import fr.acinq.eclair.wire.protocol.UpdateMessage
+import fr.acinq.eclair.wire.protocol._
 import scodec.bits.ByteVector
 import scodec.codecs._
 import scodec.{Attempt, Codec}

@@ -285,7 +285,7 @@ trait ChannelStateTestsHelperMethods extends TestKitBase {
     r2s.forward(s)
     s2r.expectMsgType[RevokeAndAck]
     s2r.forward(r)
-    awaitCond(s.stateData.asInstanceOf[HasCommitments].commitments.localCommit.spec.feeratePerKw == feerate)
+    awaitCond(s.stateData.asInstanceOf[HasCommitments].commitments.localCommit.spec.commitTxFeerate == feerate)
   }
 
   def mutualClose(s: TestFSMRef[ChannelState, ChannelData, Channel], r: TestFSMRef[ChannelState, ChannelData, Channel], s2r: TestProbe, r2s: TestProbe, s2blockchain: TestProbe, r2blockchain: TestProbe): Unit = {

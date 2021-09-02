@@ -109,6 +109,10 @@ abstract class IntegrationSpec extends TestKitBaseClass with BitcoindService wit
     s"eclair.features.${AnchorOutputs.rfcName}" -> "optional"
   ).asJava))
 
+  val withAnchorOutputsZeroFeeHtlcTxs = withAnchorOutputs.withFallback(ConfigFactory.parseMap(Map(
+    s"eclair.features.${AnchorOutputsZeroFeeHtlcTxs.rfcName}" -> "optional"
+  ).asJava))
+
   implicit val formats: Formats = DefaultFormats
 
   override def beforeAll(): Unit = {

@@ -22,10 +22,10 @@ import akka.pattern.pipe
 import akka.testkit.{TestFSMRef, TestProbe}
 import fr.acinq.bitcoin.{BtcAmount, ByteVector32, MilliBtcDouble, OutPoint, SatoshiLong, Script, ScriptWitness, Transaction, TxIn, TxOut}
 import fr.acinq.eclair.blockchain.CurrentBlockCount
+import fr.acinq.eclair.blockchain.bitcoind.BitcoindService
 import fr.acinq.eclair.blockchain.bitcoind.ZmqWatcher.{WatchOutputSpent, WatchParentTxConfirmed, WatchParentTxConfirmedTriggered, WatchTxConfirmed}
-import fr.acinq.eclair.blockchain.bitcoind.rpc.ExtendedBitcoinClient.MempoolTx
-import fr.acinq.eclair.blockchain.bitcoind.rpc.{BitcoinJsonRPCClient, ExtendedBitcoinClient}
-import fr.acinq.eclair.blockchain.bitcoind.{BitcoinCoreWallet, BitcoindService}
+import fr.acinq.eclair.blockchain.bitcoind.rpc.BitcoinCoreClient.MempoolTx
+import fr.acinq.eclair.blockchain.bitcoind.rpc.{BitcoinCoreClient, BitcoinJsonRPCClient}
 import fr.acinq.eclair.blockchain.fee.FeeratePerKw
 import fr.acinq.eclair.channel._
 import fr.acinq.eclair.channel.publish.ReplaceableTxPublisher.{Publish, Stop}
@@ -61,25 +61,24 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
                      bob2alice: TestProbe,
                      alice2blockchain: TestProbe,
                      bob2blockchain: TestProbe,
-                     walletClient: ExtendedBitcoinClient,
+                     wallet: BitcoinCoreClient,
                      walletRpcClient: BitcoinJsonRPCClient,
-                     wallet: BitcoinCoreWallet,
                      publisher: ActorRef[ReplaceableTxPublisher.Command],
                      probe: TestProbe) {
 
     def createPublisher(): ActorRef[ReplaceableTxPublisher.Command] = {
-      system.spawnAnonymous(ReplaceableTxPublisher(alice.underlyingActor.nodeParams, walletClient, alice2blockchain.ref, TxPublishLogContext(UUID.randomUUID(), randomKey().publicKey, None)))
+      system.spawnAnonymous(ReplaceableTxPublisher(alice.underlyingActor.nodeParams, wallet, alice2blockchain.ref, TxPublishLogContext(UUID.randomUUID(), randomKey().publicKey, None)))
     }
 
     def getMempool: Seq[Transaction] = {
-      walletClient.getMempool().pipeTo(probe.ref)
+      wallet.getMempool().pipeTo(probe.ref)
       probe.expectMsgType[Seq[Transaction]]
     }
 
     def getMempoolTxs(expectedTxCount: Int): Seq[MempoolTx] = {
       awaitCond(getMempool.size == expectedTxCount, interval = 200 milliseconds)
       getMempool.map(tx => {
-        walletClient.getMempoolTx(tx.txid).pipeTo(probe.ref)
+        wallet.getMempoolTx(tx.txid).pipeTo(probe.ref)
         probe.expectMsgType[MempoolTx]
       })
     }
@@ -91,13 +90,12 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
     // Create a unique wallet for this test and ensure it has some btc.
     val testId = UUID.randomUUID()
     val walletRpcClient = createWallet(s"lightning-$testId")
-    val bitcoinClient = new ExtendedBitcoinClient(walletRpcClient)
-    val bitcoinWallet = new BitcoinCoreWallet(walletRpcClient)
+    val walletClient = new BitcoinCoreClient(walletRpcClient)
     val probe = TestProbe()
 
     // Ensure our wallet has some funds.
     utxos.foreach(amount => {
-      bitcoinWallet.getReceiveAddress().pipeTo(probe.ref)
+      walletClient.getReceiveAddress().pipeTo(probe.ref)
       val walletAddress = probe.expectMsgType[String]
       sendToAddress(walletAddress, amount, probe)
     })
@@ -107,7 +105,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
     val blockCount = new AtomicLong()
     blockCount.set(currentBlockHeight(probe))
     val aliceNodeParams = TestConstants.Alice.nodeParams.copy(blockCount = blockCount)
-    val setup = init(aliceNodeParams, TestConstants.Bob.nodeParams.copy(blockCount = blockCount), bitcoinWallet)
+    val setup = init(aliceNodeParams, TestConstants.Bob.nodeParams.copy(blockCount = blockCount), walletClient)
     reachNormal(setup, Set(ChannelStateTestsTags.AnchorOutputs))
     import setup._
     awaitCond(alice.stateName == NORMAL)
@@ -117,9 +115,9 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
     generateBlocks(1)
 
     // Execute our test.
-    val publisher = system.spawn(ReplaceableTxPublisher(aliceNodeParams, bitcoinClient, alice2blockchain.ref, TxPublishLogContext(testId, TestConstants.Bob.nodeParams.nodeId, None)), testId.toString)
+    val publisher = system.spawn(ReplaceableTxPublisher(aliceNodeParams, walletClient, alice2blockchain.ref, TxPublishLogContext(testId, TestConstants.Bob.nodeParams.nodeId, None)), testId.toString)
     try {
-      testFun(Fixture(alice, bob, alice2bob, bob2alice, alice2blockchain, bob2blockchain, bitcoinClient, walletRpcClient, bitcoinWallet, publisher, probe))
+      testFun(Fixture(alice, bob, alice2bob, bob2alice, alice2blockchain, bob2blockchain, walletClient, walletRpcClient, publisher, probe))
     } finally {
       publisher ! Stop
     }
@@ -161,7 +159,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
       import f._
 
       val (commitTx, anchorTx) = closeChannelWithoutHtlcs(f)
-      walletClient.publishTransaction(commitTx.tx).pipeTo(probe.ref)
+      wallet.publishTransaction(commitTx.tx).pipeTo(probe.ref)
       probe.expectMsg(commitTx.tx.txid)
       generateBlocks(1)
 
@@ -178,7 +176,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
 
       val commitFeerate = alice.stateData.asInstanceOf[DATA_NORMAL].commitments.localCommit.spec.feeratePerKw
       val (commitTx, anchorTx) = closeChannelWithoutHtlcs(f)
-      walletClient.publishTransaction(commitTx.tx).pipeTo(probe.ref)
+      wallet.publishTransaction(commitTx.tx).pipeTo(probe.ref)
       probe.expectMsg(commitTx.tx.txid)
       generateBlocks(1)
 
@@ -195,7 +193,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
 
       val remoteCommit = bob.stateData.asInstanceOf[DATA_NORMAL].commitments.fullySignedLocalCommitTx(bob.underlyingActor.nodeParams.channelKeyManager)
       val (_, anchorTx) = closeChannelWithoutHtlcs(f)
-      walletClient.publishTransaction(remoteCommit.tx).pipeTo(probe.ref)
+      wallet.publishTransaction(remoteCommit.tx).pipeTo(probe.ref)
       probe.expectMsg(remoteCommit.tx.txid)
       generateBlocks(1)
 
@@ -212,7 +210,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
 
       val remoteCommit = bob.stateData.asInstanceOf[DATA_NORMAL].commitments.fullySignedLocalCommitTx(bob.underlyingActor.nodeParams.channelKeyManager)
       val (_, anchorTx) = closeChannelWithoutHtlcs(f)
-      walletClient.publishTransaction(remoteCommit.tx).pipeTo(probe.ref)
+      wallet.publishTransaction(remoteCommit.tx).pipeTo(probe.ref)
       probe.expectMsg(remoteCommit.tx.txid)
 
       publisher ! Publish(probe.ref, anchorTx, FeeratePerKw(10_000 sat))
@@ -240,7 +238,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
       assert(mempoolTxs.map(_.txid).contains(localCommit.tx.txid))
 
       // Our commit tx is replaced by theirs.
-      walletClient.publishTransaction(remoteCommit.tx).pipeTo(probe.ref)
+      wallet.publishTransaction(remoteCommit.tx).pipeTo(probe.ref)
       probe.expectMsg(remoteCommit.tx.txid)
       generateBlocks(1)
       system.eventStream.publish(CurrentBlockCount(currentBlockHeight(probe)))
@@ -257,7 +255,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
 
       // close channel and wait for the commit tx to be published, anchor will not be published because we don't have enough funds
       val (commitTx, anchorTx) = closeChannelWithoutHtlcs(f)
-      walletClient.publishTransaction(commitTx.tx).pipeTo(probe.ref)
+      wallet.publishTransaction(commitTx.tx).pipeTo(probe.ref)
       probe.expectMsg(commitTx.tx.txid)
 
       publisher ! Publish(probe.ref, anchorTx, FeeratePerKw(25_000 sat))
@@ -274,7 +272,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
       import f._
 
       val (commitTx, anchorTx) = closeChannelWithoutHtlcs(f)
-      walletClient.publishTransaction(commitTx.tx).pipeTo(probe.ref)
+      wallet.publishTransaction(commitTx.tx).pipeTo(probe.ref)
       probe.expectMsg(commitTx.tx.txid)
       assert(getMempool.length === 1)
 
@@ -461,7 +459,7 @@ class ReplaceableTxPublisherSpec extends TestKitBaseClass with AnyFunSuiteLike w
 
     // We make the commit tx confirm because htlc txs have a relative delay.
     alice2blockchain.expectMsg(PublishRawTx(commitTx, None))
-    walletClient.publishTransaction(commitTx.tx).pipeTo(probe.ref)
+    wallet.publishTransaction(commitTx.tx).pipeTo(probe.ref)
     probe.expectMsg(commitTx.tx.txid)
     generateBlocks(1)
 
